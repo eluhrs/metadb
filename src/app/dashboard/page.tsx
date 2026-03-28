@@ -27,14 +27,14 @@ export default async function Dashboard() {
 
   return (
     <div className="bg-slate-100 min-h-[calc(100vh-64px)] w-full">
-      <div className="max-w-[1300px] w-full mx-auto p-8 lg:p-12">
-        <div className="flex items-center justify-between mb-10">
+      <div className="max-w-[1300px] w-full mx-auto px-8 pb-8 pt-0 lg:px-12 lg:pb-12 lg:pt-0">
+        {/* Sticky Top Header */}
+        <div className="sticky top-0 z-30 bg-slate-100 pt-8 lg:pt-12 pb-6 mb-6 flex items-center justify-between border-b border-gray-400 transition-all">
           <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">Collections</h1>
           <AdminSettingsTrigger isAdmin={isAdmin} />
         </div>
 
       <div className="flex flex-col space-y-0">
-        <hr className="border-gray-400" />
         
         {collections.map((col: any) => {
           const imageUriField = col.fieldDefinitions.find((f: any) => f.isFile);

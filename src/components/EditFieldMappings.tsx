@@ -400,7 +400,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
   return (
     <div className="relative w-full max-w-full flex flex-col">
       {/* Sticky Top Header & Extracted Actions */}
-      <div className="sticky top-0 z-30 bg-slate-100 pt-6 pb-6 mb-8 -mx-8 px-8 lg:-mx-12 lg:px-12 flex flex-col sm:flex-row sm:items-center justify-between gap-y-4 transition-all">
+      <div className="sticky top-0 z-30 bg-slate-100 pt-8 lg:pt-12 pb-6 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-y-4 border-b border-gray-400 transition-all">
         <h1 className="text-3xl font-extrabold tracking-tight text-gray-900 block truncate max-w-2xl" title={collection.name}>
           {collection.name} Field Configuration:
         </h1>

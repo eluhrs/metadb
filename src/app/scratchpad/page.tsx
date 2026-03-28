@@ -64,6 +64,24 @@ export default function ScratchpadIndex() {
               </div>
             </Link>
           </li>
+          <li>
+            <Link 
+              href="/scratchpad/google-login" 
+              className="block p-6 hover:bg-gray-50 transition-colors border-t border-gray-200"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-semibold text-rose-600 mb-1">Google OAuth Login Designs</h2>
+                  <p className="text-gray-500 text-sm">Design variations for the Google Sign-in and Sign-out triggers (Navbar vs Center).</p>
+                </div>
+                <div className="text-gray-400">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </div>
+            </Link>
+          </li>
         </ul>
       </div>
     </div>

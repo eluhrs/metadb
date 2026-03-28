@@ -16,7 +16,7 @@ export default async function EditCollectionPage({ params }: { params: Promise<{
 
   return (
     <div className="bg-slate-100 min-h-[calc(100vh-64px)] w-full">
-      <div className="max-w-[1300px] w-full mx-auto p-8 lg:p-12">
+      <div className="max-w-[1300px] w-full mx-auto px-8 pb-8 pt-0 lg:px-12 lg:pb-12 lg:pt-0">
         <EditFieldMappings collection={collection} availableModels={availableModels} />
       </div>
     </div>
