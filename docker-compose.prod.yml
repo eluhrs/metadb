@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: metadb_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-super_secure_metadb_password}
+      POSTGRES_DB: metadb_prod
+    volumes:
+      - metadb_prod_data:/var/lib/postgresql/data
+
+  app:
+    build: .
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://metadb_user:${POSTGRES_PASSWORD:-super_secure_metadb_password}@db:5432/metadb_prod
+      - NEXTAUTH_URL=${NEXTAUTH_URL}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - ALLOWED_EMAILS=${ALLOWED_EMAILS}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODELS=${GEMINI_MODELS}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+    depends_on:
+      - db
+    volumes:
+      - ./image-cache:/app/.next/cache/metadb-images
+
+volumes:
+  metadb_prod_data:

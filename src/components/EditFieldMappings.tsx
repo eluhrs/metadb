@@ -29,7 +29,7 @@ type FieldDefinition = {
   isAdministrative: boolean;
   isLong: boolean;
   isBulk: boolean;
-  staticText: string | null;
+  isLocked: boolean;
   isControlled: boolean;
   controlledVocabList: string | null;
   controlledSeparator: string;
@@ -43,7 +43,7 @@ type FieldDefinition = {
 };
 
 // Sortable Row Component
-function SortableFieldRow({ f, updateField, deleteField, handleComplexToggle, isOverlay = false, hasFileFieldSelected = false }: any) {
+function SortableFieldRow({ f, updateField, deleteField, handleComplexToggle, isOverlay = false, hasFileFieldSelected = false, cacheState, onPreCache }: any) {
   const {
     attributes,
     listeners,
@@ -92,6 +92,45 @@ function SortableFieldRow({ f, updateField, deleteField, handleComplexToggle, is
             onChange={(e) => updateField(f.id, { name: e.target.value })}
             className="w-full border-gray-300 rounded px-2 py-1.5 focus:ring-blue-500 focus:border-blue-500 font-medium bg-transparent hover:bg-white transition-colors" 
           />
+          {f.isFile && (
+            <div className="flex-shrink-0 flex items-center pr-1">
+               {cacheState?.active ? (
+                  <div className="w-24 lg:w-32 h-[26px] bg-slate-200 rounded overflow-hidden border border-slate-300 relative shadow-inner">
+                     <div 
+                        className="h-full bg-green-500 transition-all duration-300 ease-out" 
+                        style={{ width: `${cacheState.total ? Math.round((cacheState.cached / cacheState.total) * 100) : 0}%` }}
+                     />
+                     <div className="absolute inset-0 flex items-center justify-center text-[10px] uppercase tracking-wider font-extrabold text-slate-900 drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)]">
+                        {cacheState.cached} / {cacheState.total}
+                     </div>
+                  </div>
+               ) : cacheState?.error ? (
+                 <div className="bg-red-50 border border-red-200 text-red-600 text-[10px] font-bold px-2 py-1 rounded w-full line-clamp-1 cursor-help" title={cacheState.error}>
+                   {cacheState.error}
+                 </div>
+               ) : (
+                 <button
+                   onClick={(e) => { e.preventDefault(); onPreCache?.(); }}
+                   disabled={cacheState?.completed}
+                   className={`${cacheState?.completed ? 'bg-green-50 text-green-700 border border-green-200 cursor-default opacity-80' : 'bg-gray-50 text-gray-500 border border-gray-200 hover:bg-gray-100 hover:text-gray-700 shadow-sm'} transition-colors text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1 uppercase tracking-wider`}
+                   title={cacheState?.completed ? "Media Successfully Cached" : "Pre-Cache Native Google Drive Blobs"}
+                 >
+                   {cacheState?.completed ? (
+                      <>
+                         <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                           <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                         </svg>
+                         cached
+                      </>
+                   ) : (
+                      <>
+                         cache
+                      </>
+                   )}
+                 </button>
+               )}
+            </div>
+          )}
           {(f.id.startsWith('temp-') || f.columnIndex === -1) && (
             <button 
               onClick={(e) => { e.preventDefault(); deleteField(f.id); }} 
@@ -231,6 +270,43 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
   const [selectedVocabTerms, setSelectedVocabTerms] = useState<string[]>([]);
   const [isConfirmingWrite, setIsConfirmingWrite] = useState(false);
 
+  const [cacheState, setCacheState] = useState<{ active: boolean, total: number, cached: number }>({ active: false, total: 0, cached: 0 });
+
+  const handlePreCache = async () => {
+    setCacheState({ active: true, total: 0, cached: 0, completed: false } as any);
+    let isComplete = false;
+    let currentTotal = 0;
+    
+    while (!isComplete) {
+       try {
+         const res = await fetch(`/api/collections/${collection.id}/cache`, { method: 'POST' });
+         if (!res.ok) {
+            const errorText = await res.text().catch(() => "Unknown Server Crash");
+            throw new Error(`HTTP ${res.status}: ${errorText}`);
+         }
+         const data = await res.json();
+         
+         currentTotal = data.total;
+
+         if (data.debug) {
+            setCacheState({ active: false, total: 0, cached: 0, completed: false, error: data.debug } as any);
+            return;
+         }
+
+         setCacheState({ active: true, total: currentTotal, cached: data.cached, completed: false } as any);
+         
+         if (currentTotal === 0 || data.cached >= currentTotal) {
+            isComplete = true;
+         }
+       } catch (e: any) {
+         console.error(e);
+         setCacheState({ active: false, total: 0, cached: 0, completed: false, error: e.message } as any);
+         return; // Abort the UI loop without triggering the 1.5s 'completed' green tick!
+       }
+    }
+    setTimeout(() => setCacheState({ active: false, total: currentTotal, cached: currentTotal, completed: true } as any), 1500);
+  };
+
   const handleAddField = () => {
     setFields(prev => [...prev, {
       id: `temp-${Math.random().toString(36).substr(2, 9)}`,
@@ -301,7 +377,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
     if (type === 'controlled') isCurrentlyOn = field.isControlled;
 
     if (!isCurrentlyOn) {
-      if (type === 'ai') updateField(field.id, { aiPrompt: "" });
+      if (type === 'ai') updateField(field.id, { aiPrompt: "", aiModel: availableModels[0] || "gemini-1.5-flash" });
       if (type === 'controlled') updateField(field.id, { isControlled: true, controlledSeparator: "|" });
     }
     
@@ -487,7 +563,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                 </thead>
                 <DroppableTableBody id="desc" items={descriptiveFields.map(f => f.id)}>
                   {descriptiveFields.map((f) => (
-                    <SortableFieldRow key={f.id} f={f} updateField={updateField} deleteField={deleteField} handleComplexToggle={handleComplexToggle} hasFileFieldSelected={hasFileFieldSelected} />
+                    <SortableFieldRow key={f.id} f={f} updateField={updateField} deleteField={deleteField} handleComplexToggle={handleComplexToggle} hasFileFieldSelected={hasFileFieldSelected} cacheState={cacheState} onPreCache={handlePreCache} />
                   ))}
                 </DroppableTableBody>
               </table>
@@ -518,7 +594,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                 </thead>
                 <DroppableTableBody id="admin" items={administrativeFields.map(f => f.id)}>
                   {administrativeFields.map((f) => (
-                    <SortableFieldRow key={f.id} f={f} updateField={updateField} deleteField={deleteField} handleComplexToggle={handleComplexToggle} hasFileFieldSelected={hasFileFieldSelected} />
+                    <SortableFieldRow key={f.id} f={f} updateField={updateField} deleteField={deleteField} handleComplexToggle={handleComplexToggle} hasFileFieldSelected={hasFileFieldSelected} cacheState={cacheState} onPreCache={handlePreCache} />
                   ))}
                 </DroppableTableBody>
               </table>
@@ -529,7 +605,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
             {activeDragField ? (
               <table className="w-full bg-white shadow-xl ring-2 ring-blue-500 rounded-lg overflow-hidden" style={{ borderCollapse: 'initial', borderSpacing: 0 }}>
                 <tbody>
-                  <SortableFieldRow f={activeDragField} updateField={() => {}} handleComplexToggle={() => {}} isOverlay={true} />
+                  <SortableFieldRow f={activeDragField} updateField={() => {}} handleComplexToggle={() => {}} isOverlay={true} cacheState={cacheState} onPreCache={() => {}} />
                 </tbody>
               </table>
             ) : null}

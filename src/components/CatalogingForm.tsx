@@ -237,7 +237,11 @@ export function CatalogingForm({
               </label>
 
               <div className="flex items-start space-x-2">
-                <div className="flex-1 relative">
+                <div 
+                  className="flex-1 relative"
+                  onFocus={() => setBulkPopupField(null)}
+                  onClick={() => setBulkPopupField(null)}
+                >
                   
                   {isLocked ? (
                     <div className="bg-gray-200/50 text-gray-500 p-2.5 rounded-md text-sm border border-gray-300 shadow-sm w-full min-h-[46px] flex items-center">
@@ -332,26 +336,35 @@ export function CatalogingForm({
                       
                       {bulkPopupField === def.id && (
                         <div className="absolute right-10 top-0 z-20 bg-white border border-gray-200 rounded-lg shadow-xl p-3 w-64 flex flex-col space-y-2">
-                          <span className="text-xs font-semibold text-gray-700">Apply value to exact record numbers:</span>
-                          <input 
-                            type="text" 
-                            placeholder="e.g. 3, 5-9, 15"
-                            value={bulkCount}
-                            onChange={(e) => setBulkCount(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                handleBulkApply(def.id);
-                              }
-                            }}
-                            className="border border-gray-300 rounded text-sm px-2 py-1.5 outline-none focus:border-slate-600 focus:ring-1 focus:ring-slate-600 mb-1 font-mono placeholder:font-sans placeholder:text-gray-400" 
-                          />
-                          <button 
-                            onClick={() => handleBulkApply(def.id)}
-                            className="bg-blue-600 text-white rounded text-xs py-1.5 hover:bg-blue-700 font-medium tracking-wide"
-                          >
-                            Apply Value
-                          </button>
+                          {!(formValues[def.id] || '').trim() ? (
+                            <span className="text-xs font-semibold text-red-600 bg-red-50 p-2 rounded border border-red-100 text-center shadow-inner">
+                              Please type a value in the main field box first to enable bulk propagation.
+                            </span>
+                          ) : (
+                            <>
+                              <span className="text-xs font-semibold text-gray-700">Apply value to exact record numbers:</span>
+                              <input 
+                                type="text" 
+                                placeholder="e.g. 3, 5-9, 15"
+                                value={bulkCount}
+                                onChange={(e) => setBulkCount(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleBulkApply(def.id);
+                                  }
+                                }}
+                                className="border border-gray-300 rounded text-sm px-2 py-1.5 outline-none focus:border-slate-600 focus:ring-1 focus:ring-slate-600 mb-1 font-mono placeholder:font-sans placeholder:text-gray-400" 
+                              />
+                              <button 
+                                onClick={() => handleBulkApply(def.id)}
+                                disabled={!bulkCount.trim()}
+                                className="bg-blue-600 text-white rounded text-xs py-1.5 hover:bg-blue-700 font-medium tracking-wide disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed transition-colors"
+                              >
+                                Apply Value
+                              </button>
+                            </>
+                          )}
                           <div className="absolute right-[-6px] top-3 w-3 h-3 bg-white border-t border-r border-gray-200 rotate-45" />
                         </div>
                       )}

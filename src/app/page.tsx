@@ -1,4 +1,13 @@
-export default function Home() {
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { redirect } from "next/navigation";
+
+export default async function Home() {
+  const session = await getServerSession(authOptions);
+  if (session) {
+    redirect("/dashboard");
+  }
+
   return (
     <div className="relative bg-slate-100 min-h-[calc(100vh-64px)] flex-1 w-full overflow-hidden flex flex-col md:flex-row items-center p-8 lg:p-16">
       <div className="z-10 w-full md:w-1/2 lg:w-[45%] xl:w-[40%] flex flex-col items-start text-left relative mb-48 md:mb-0">

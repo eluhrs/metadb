@@ -48,13 +48,15 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
       if (match) {
         const fileId = match[1];
         const blobPath = path.join(cacheDir, `${fileId}.blob`);
-        console.log(`[GARBAGE COLLECTION] Target Blob: ${blobPath}`);
+        const errorPath = path.join(cacheDir, `${fileId}.error`);
+        console.log(`[GARBAGE COLLECTION] Target Payload: ${blobPath}`);
         try {
           if (fs.existsSync(blobPath)) {
             await fs.promises.unlink(blobPath);
             console.log(`[GARBAGE COLLECTION] Successfully shredded: ${fileId}.blob`);
-          } else {
-            console.log(`[GARBAGE COLLECTION] Skipping (Not Found locally): ${fileId}.blob`);
+          }
+          if (fs.existsSync(errorPath)) {
+            await fs.promises.unlink(errorPath);
           }
         } catch (e) {
           // Swallow minor unlink failures to prevent breaking the promise chain
