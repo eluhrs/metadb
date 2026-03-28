@@ -182,7 +182,6 @@ export function CatalogingForm({
 
   const handleProcessAi = async (fieldId: string) => {
     setActiveAiField(fieldId);
-    if (onSaveStatus) onSaveStatus("SAVING");
     try {
       const res = await fetch("/api/records/ai", {
         method: "POST",
@@ -215,7 +214,7 @@ export function CatalogingForm({
       <div className="flex flex-col space-y-6 bg-slate-100 pb-16">
         {activeFields.map(def => {
           
-          const isStatic = def.staticText !== null;
+          const isLocked = def.isLocked;
           const isVocab = def.isControlled;
           const isAi = def.aiPrompt !== null;
 
@@ -240,9 +239,9 @@ export function CatalogingForm({
               <div className="flex items-start space-x-2">
                 <div className="flex-1 relative">
                   
-                  {isStatic ? (
-                    <div className="bg-gray-200/50 text-gray-600 p-4 rounded-md text-sm border border-gray-300 shadow-sm w-full min-h-[50px]">
-                      {formValues[def.id] || def.staticText}
+                  {isLocked ? (
+                    <div className="bg-gray-200/50 text-gray-500 p-2.5 rounded-md text-sm border border-gray-300 shadow-sm w-full min-h-[46px] flex items-center">
+                      {formValues[def.id] || ""}
                     </div>
                   ) : isVocab && def.controlledMulti ? (
                      <MultiAutocompleteInput
@@ -319,7 +318,7 @@ export function CatalogingForm({
                 
                 {/* Right Aligned Action Tools */}
                 <div className="w-8 flex-shrink-0 relative flex flex-col justify-start items-center space-y-2 pt-1.5 min-h-[32px]">
-                  {def.isBulk && !isStatic && (
+                  {def.isBulk && !isLocked && (
                     <>
                       <button 
                         onClick={() => setBulkPopupField(bulkPopupField === def.id ? null : def.id)}
@@ -363,7 +362,7 @@ export function CatalogingForm({
                     <button 
                        onClick={() => handleProcessAi(def.id)}
                        disabled={activeAiField === def.id}
-                       className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${activeAiField === def.id ? 'text-blue-400 bg-blue-50 cursor-wait' : 'text-gray-400 hover:text-blue-600 hover:bg-blue-100'}`} 
+                       className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${activeAiField === def.id ? 'text-blue-400 bg-blue-50 cursor-default' : 'text-gray-400 hover:text-blue-600 hover:bg-blue-100'}`} 
                        title="Process AI (Manual Trigger)"
                     >
                        {activeAiField === def.id ? (

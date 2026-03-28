@@ -29,7 +29,7 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
         isAdministrative: f.isAdministrative,
         isLong: f.isLong,
         isBulk: f.isBulk,
-        staticText: f.staticText,
+        isLocked: f.isLocked,
         isControlled: f.isControlled,
         controlledVocabList: f.controlledVocabList,
         controlledSeparator: f.controlledSeparator || '|',
@@ -55,37 +55,17 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
 
     await prisma.$transaction(updates);
 
-    // --- BURN STATIC FIELDS INTO DATABASE ---
-    const staticFields = fields.filter((f: any) => typeof f.staticText === 'string' && f.staticText.trim() !== "");
-    if (staticFields.length > 0) {
-       const allRecords = await prisma.record.findMany({
-          where: { collectionId: params.id },
-          select: { id: true }
-       });
-       
-       if (allRecords.length > 0) {
-          for (const f of staticFields) {
-             // 1. Wipe old DB values for this field globally across the collection safely
-             await prisma.value.deleteMany({
-                where: { 
-                   fieldId: f.id, 
-                   record: { collectionId: params.id } 
-                }
-             });
-             
-             // 2. Insert exactly the static string natively into all collection records
-             const insertPayloads = allRecords.map((r: { id: string }) => ({
-                recordId: r.id,
-                fieldId: f.id,
-                value: f.staticText
-             }));
-             
-             await prisma.value.createMany({
-                data: insertPayloads
-             });
-          }
-       }
-    }
+    // --- CUSTOM SCHEMA PRUNING ---
+    // If a custom field (columnIndex === -1) is missing from the React payload, physically delete it from the cluster.
+    const incomingIds = fields.filter((f: any) => !f.id.startsWith('temp-')).map((f: any) => f.id);
+    
+    await prisma.fieldDefinition.deleteMany({
+      where: {
+        collectionId: params.id,
+        columnIndex: -1,
+        id: { notIn: incomingIds }
+      }
+    });
 
     // --- PROACTIVE CACHE SEEDING ---
     // Extract the new explicitly defined Image field if present

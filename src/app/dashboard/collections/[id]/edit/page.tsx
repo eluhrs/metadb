@@ -11,7 +11,7 @@ export default async function EditCollectionPage({ params }: { params: Promise<{
 
   if (!collection) return notFound();
 
-  const modelsStr = process.env.GEMINI_MODELS || "gemini-1.5-flash,gemini-1.5-pro";
+  const modelsStr = process.env.GEMINI_MODELS || "gemini-2.5-flash,gemini-2.0-flash,gemini-pro-latest";
   const availableModels = modelsStr.split(',').map(s => s.trim()).filter(Boolean);
 
   return (

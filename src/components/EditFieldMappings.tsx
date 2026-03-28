@@ -59,7 +59,6 @@ function SortableFieldRow({ f, updateField, deleteField, handleComplexToggle, is
     opacity: isDragging ? 0.3 : 1,
   };
 
-  const isStatic = f.staticText !== null;
   const isAi = f.aiPrompt !== null;
 
   return (
@@ -131,19 +130,31 @@ function SortableFieldRow({ f, updateField, deleteField, handleComplexToggle, is
         </label>
       </td>
       
+      <td className="px-2 py-3 text-center border-l border-r border-gray-200">
+        <label className="flex items-center justify-center cursor-pointer">
+          <input 
+            type="checkbox" 
+            checked={f.isLocked} 
+            onChange={(e) => updateField(f.id, { isLocked: e.target.checked })} 
+            className="w-4 h-4 text-slate-800 rounded border-gray-300"
+          />
+        </label>
+      </td>
+
       <td className="px-3 py-3 text-center border-r border-gray-200">
-        <ToggleButton 
-          active={isStatic} 
-          disabled={f.isFile || f.isLong}
-          label="Text" 
-          onClick={() => handleComplexToggle(f, 'static')} 
-        />
+        <button 
+          onClick={() => handleComplexToggle(f, 'write')}
+          disabled={f.isFile}
+          className={`px-3 py-1 text-[11px] font-bold rounded transition shadow-sm ${f.isFile ? 'bg-gray-100 text-gray-400 opacity-60 cursor-not-allowed border border-gray-200' : 'bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700 border border-red-200'}`}
+        >
+          text
+        </button>
       </td>
 
       <td className="px-3 py-3 text-center border-l border-r border-gray-200">
         <ToggleButton 
           active={f.isControlled} 
-          disabled={isStatic || f.isFile || f.isLong}
+          disabled={f.isFile || f.isLong}
           label="Terms" 
           onClick={() => handleComplexToggle(f, 'controlled')} 
         />
@@ -152,7 +163,7 @@ function SortableFieldRow({ f, updateField, deleteField, handleComplexToggle, is
       <td className="px-3 py-3 text-center border-r border-gray-200">
         <ToggleButton 
           active={isAi} 
-          disabled={isStatic || f.isFile}
+          disabled={f.isLocked || f.isFile}
           label="Prompt" 
           onClick={() => handleComplexToggle(f, 'ai')} 
         />
@@ -214,8 +225,11 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
   const hasFileFieldSelected = fields.some(f => f.isFile);
   
   const [activeDragField, setActiveDragField] = useState<FieldDefinition | null>(null);
-  const [modalOpen, setModalOpen] = useState<'ai' | 'static' | 'controlled' | null>(null);
+  const [modalOpen, setModalOpen] = useState<'ai' | 'controlled' | 'write' | null>(null);
   const [activeField, setActiveField] = useState<FieldDefinition | null>(null);
+  const [overwriteText, setOverwriteText] = useState("");
+  const [selectedVocabTerms, setSelectedVocabTerms] = useState<string[]>([]);
+  const [isConfirmingWrite, setIsConfirmingWrite] = useState(false);
 
   const handleAddField = () => {
     setFields(prev => [...prev, {
@@ -225,7 +239,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
       isAdministrative: false,
       isLong: false,
       isBulk: false,
-      staticText: null,
+      isLocked: false,
       isControlled: false,
       controlledVocabList: null,
       controlledSeparator: "|",
@@ -271,20 +285,49 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
     }
   };
 
-  const handleComplexToggle = (field: FieldDefinition, type: 'ai' | 'static' | 'controlled') => {
+  const handleComplexToggle = (field: FieldDefinition, type: 'ai' | 'controlled' | 'write') => {
     setActiveField(field);
+
+    if (type === 'write') {
+       setOverwriteText("");
+       setSelectedVocabTerms([]);
+       setIsConfirmingWrite(false);
+       setModalOpen('write');
+       return;
+    }
+
     let isCurrentlyOn = false;
-    if (type === 'static') isCurrentlyOn = field.staticText !== null;
     if (type === 'ai') isCurrentlyOn = field.aiPrompt !== null;
     if (type === 'controlled') isCurrentlyOn = field.isControlled;
 
     if (!isCurrentlyOn) {
-      if (type === 'static') updateField(field.id, { staticText: "" });
       if (type === 'ai') updateField(field.id, { aiPrompt: "" });
       if (type === 'controlled') updateField(field.id, { isControlled: true, controlledSeparator: "|" });
     }
     
     setModalOpen(type);
+  };
+
+  const executeOverwrite = async (fieldId: string) => {
+     let finalValue = overwriteText.trim();
+     if (activeField?.isControlled) {
+        finalValue = selectedVocabTerms.join(activeField.controlledSeparator || "|");
+     }
+
+     setLoading(true);
+     try {
+       const res = await fetch(`/api/fields/${fieldId}/overwrite`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: finalValue })
+       });
+       if (!res.ok) throw new Error("Overwrite completely failed to execute on server.");
+       setModalOpen(null);
+     } catch(e: any) {
+       setError(e.message);
+     } finally {
+       setLoading(false);
+     }
   };
 
   const sensors = useSensors(
@@ -434,7 +477,8 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-l border-r border-gray-200" title="File/Image URI">File</th>
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Long Text Area">Long</th>
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200">Bulk</th>
-                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200">Static</th>
+                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Lock Manual Input">Lock</th>
+                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Global Database Overwrite">Write</th>
                     
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-l border-r border-gray-200">Vocab</th>
 
@@ -464,7 +508,8 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-l border-r border-gray-200" title="File/Image URI">File</th>
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Long Text Area">Long</th>
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200">Bulk</th>
-                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200">Static</th>
+                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Lock Manual Input">Lock</th>
+                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Global Database Overwrite">Write</th>
                     
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-l border-r border-gray-200">Vocab</th>
 
@@ -583,27 +628,99 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
          </div>
       )}
 
-      {modalOpen === 'static' && activeField && (
-         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-xl shadow border border-gray-200 p-6 max-w-md w-full">
+      {modalOpen === 'write' && activeField && (
+         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <div className="bg-red-50 rounded-xl shadow-2xl border-2 border-red-300 p-6 max-w-md w-full relative overflow-hidden">
+               <div className="absolute top-0 left-0 w-full h-1 bg-red-500"></div>
                <div className="flex justify-between items-center mb-4">
-                 <h3 className="text-lg font-bold text-gray-900 border-b-2 border-blue-600 pb-1">Enter Static Text</h3>
-                 <span className="text-gray-400 font-bold cursor-pointer hover:text-gray-600" onClick={() => setModalOpen(null)}>✕</span>
+                 <h3 className="text-lg font-extrabold text-red-900 border-b-2 border-red-400 pb-1 pr-6 flex items-center gap-2">
+                   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                   Overwrite Field Values
+                 </h3>
+                 <span className="text-red-400 font-bold cursor-pointer hover:text-red-700 transition" onClick={() => setModalOpen(null)}>✕</span>
               </div>
-              <p className="text-xs text-gray-500 mb-4">Define the read-only template text for the <span className="font-semibold text-gray-800">{activeField?.name}</span> field.</p>
-              <textarea 
-                className="w-full border border-gray-300 rounded text-sm p-3 mb-4 h-24 focus:ring-blue-500 focus:outline-none"
-                placeholder="e.g. This item is under copyright..."
-                value={activeField?.staticText || ''}
-                onChange={(e) => updateField(activeField?.id || '', { staticText: e.target.value })}
-              />
-              <div className="flex justify-between items-center mt-2">
-                <button onClick={() => {
-                  updateField(activeField?.id || '', { staticText: null });
-                  setModalOpen(null);
-                }} className="text-red-500 hover:text-red-700 text-sm font-medium">Remove Static Text Lock</button>
-                <button onClick={() => setModalOpen(null)} className="bg-slate-800 text-white px-6 py-2 rounded text-sm hover:bg-slate-700 font-bold shadow-sm">Save Text</button>
-              </div>
+              {!isConfirmingWrite ? (
+                <>
+                  <p className="text-xs text-red-700 mb-5 font-semibold bg-red-100 p-3 rounded border border-red-200 shadow-inner leading-relaxed">
+                     Warning: This action is permanent. {activeField?.isControlled ? "Select field(s)" : "Enter text"} to replace the current value(s) of <span className="font-extrabold text-red-900 bg-red-200 px-1 py-0.5 rounded">{activeField?.name}</span> across the entire collection.
+                  </p>
+                  
+                  {activeField?.isControlled ? (
+                      <div className="relative mb-4">
+                         <div className="text-sm text-red-800 mb-2">Select new field(s) or leave blank to clear all existing values:</div>
+                         <div className="max-h-40 overflow-y-auto border-2 border-red-300 rounded bg-white p-2 shadow-inner">
+                            {activeField.controlledVocabList?.split('\n').map(t => t.trim()).filter(Boolean).map((o, idx) => (
+                               <label key={idx} className="flex items-center space-x-3 p-2 hover:bg-red-50 rounded cursor-pointer transition-colors border-b border-gray-100 last:border-0">
+                                  <input 
+                                     type="checkbox" 
+                                     className="w-4 h-4 text-red-600 rounded border-gray-300 focus:ring-red-500 cursor-pointer"
+                                     checked={selectedVocabTerms.includes(o)}
+                                     onChange={(e) => {
+                                        if (e.target.checked) {
+                                           setSelectedVocabTerms(prev => [...prev, o]);
+                                        } else {
+                                           setSelectedVocabTerms(prev => prev.filter(t => t !== o));
+                                        }
+                                     }}
+                                  />
+                                  <span className="text-sm text-gray-800 font-semibold">{o}</span>
+                               </label>
+                            ))}
+                            {(!activeField.controlledVocabList || activeField.controlledVocabList.trim() === '') && (
+                               <div className="text-sm text-gray-500 italic p-2 text-center">No vocabulary terms currently defined in the schema.</div>
+                            )}
+                         </div>
+                      </div>
+                  ) : (
+                      <textarea 
+                        className="w-full border-2 border-red-300 rounded text-sm p-3 mb-4 h-24 focus:ring-red-600 focus:border-red-600 focus:outline-none bg-white text-gray-900 shadow-sm"
+                        placeholder="Enter new text or leave blank to clear all existing values."
+                        value={overwriteText}
+                        onChange={(e) => setOverwriteText(e.target.value)}
+                      />
+                  )}
+                  
+                  <div className="flex justify-end items-center mt-2">
+                    <button 
+                      onClick={() => setIsConfirmingWrite(true)} 
+                      className="bg-red-600 text-white px-6 py-2.5 rounded text-sm hover:bg-red-700 hover:shadow-md font-extrabold shadow transition-all"
+                    >
+                      Overwrite Field Values
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-6 text-center">
+                   <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-red-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                   </svg>
+                   <h4 className="text-xl font-black text-red-900 mb-2">Are you absolutely sure?</h4>
+                   <p className="text-sm text-red-700 font-medium mb-8 px-4">
+                      This will instantly and permanently delete existing data for <span className="font-extrabold bg-red-200 px-1 py-0.5 rounded">{activeField?.name}</span> across all records in the current collection.
+                   </p>
+                   <div className="flex gap-4 w-full justify-center">
+                      <button 
+                         onClick={() => setIsConfirmingWrite(false)}
+                         disabled={loading}
+                         className="bg-white text-gray-700 border border-gray-300 px-6 py-2.5 rounded text-sm hover:bg-gray-50 font-bold shadow-sm disabled:opacity-50"
+                      >
+                         Cancel
+                      </button>
+                      <button 
+                         onClick={() => executeOverwrite(activeField.id)} 
+                         disabled={loading}
+                         className="bg-red-600 text-white px-6 py-2.5 rounded text-sm hover:bg-red-700 font-extrabold shadow-md disabled:opacity-50 flex items-center justify-center"
+                      >
+                         {loading ? (
+                           <>
+                             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                             Overwriting...
+                           </>
+                         ) : "Yes, Overwrite Records"}
+                      </button>
+                   </div>
+                </div>
+              )}
             </div>
          </div>
       )}
@@ -620,7 +737,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1">Prompt text</label>
                   <textarea 
-                    className="w-full border border-gray-300 rounded text-sm p-2 h-16 focus:ring-blue-500 focus:outline-none"
+                    className="w-full border border-gray-300 rounded text-sm p-3 h-40 focus:ring-blue-500 focus:outline-none"
                     placeholder="Translate {{Title English}} to Japanese."
                     value={activeField?.aiPrompt || ''}
                     onChange={(e) => updateField(activeField?.id || '', { aiPrompt: e.target.value })}
@@ -631,10 +748,9 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                   <label className="block text-xs font-semibold text-gray-700 mb-1">AI Model Selection</label>
                   <select 
                     className="w-full border border-gray-300 rounded text-sm p-2 focus:ring-blue-500 focus:outline-none bg-white"
-                    value={activeField?.aiModel || ""}
+                    value={activeField?.aiModel || availableModels[0]}
                     onChange={(e) => updateField(activeField?.id || '', { aiModel: e.target.value })}
                   >
-                    <option value="">Select a generative model...</option>
                     {availableModels.map((m: string) => (
                       <option key={m} value={m}>{m}</option>
                     ))}

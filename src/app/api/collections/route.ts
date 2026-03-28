@@ -60,7 +60,7 @@ export async function POST(req: Request) {
             controlledMulti: false,
             isAdministrative: false,
             isFile: idx === imageUriColIndex, // Assign file rendering to auto-detected column
-            staticText: null,
+            isLocked: false,
             uiOrder: idx,
             columnIndex: idx,
           })),

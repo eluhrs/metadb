@@ -144,7 +144,7 @@ export default function AdminSettingsDrawer({ isOpen, onClose }: { isOpen: boole
                onClick={() => setActiveTab("USERS")}
                className={`flex-1 py-2 text-sm font-bold tracking-tight rounded-md transition-all ${activeTab === 'USERS' ? 'bg-white text-gray-900 shadow-sm border border-gray-200/60 ring-1 ring-black/5' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200/50'}`}
              >
-               Manage Whitelist
+               Manage Allow List
              </button>
           </div>
 
