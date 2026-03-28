@@ -1,0 +1,155 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  LIBRARIAN
+  SPECIALIST
+}
+
+enum ImageStrategy {
+  URI
+  LOCAL_UPLOAD
+}
+
+enum FieldType {
+  SHORT_TEXT
+  LONG_TEXT
+  CONTROLLED_VOCAB
+  STATIC
+  // Reserved for future
+  AI_EXTRACT
+}
+
+model User {
+  id            String    @id @default(uuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  role          Role      @default(SPECIALIST)
+  accounts      Account[]
+  sessions      Session[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model UserAllowList {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+}
+
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String?  @db.Text
+  access_token       String?  @db.Text
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String?  @db.Text
+  session_state      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Collection {
+  id               String            @id @default(uuid())
+  name             String
+  imageStrategy    ImageStrategy     @default(URI)
+  externalSheetUrl String?
+  fieldDefinitions FieldDefinition[]
+  records          Record[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+}
+
+model FieldDefinition {
+  id                 String     @id @default(uuid())
+  collectionId       String
+  collection         Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  name               String
+  description        String?
+  
+  // Field Types & Toggles
+  isFile             Boolean    @default(false)
+  isLong             Boolean    @default(false)
+  isAdministrative   Boolean    @default(false)
+  isBulk             Boolean    @default(false)
+  
+  // Advanced Features
+  staticText         String?    @db.Text
+  isControlled       Boolean    @default(false)
+  controlledVocabList String?   @db.Text
+  controlledSeparator String    @default("|")
+  controlledMulti    Boolean    @default(false)
+  controlledAdds     Boolean    @default(false)
+  controlledDrop     Boolean    @default(false)
+  aiPrompt           String?    @db.Text
+  aiModel            String?
+  
+  columnIndex        Int?       // Tracks original imported column order
+  uiOrder            Int        @default(0) // Visual ordering tracking drag-n-drop state
+
+  values             Value[]
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+}
+
+model Record {
+  id           String     @id @default(uuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  status       String     @default("PENDING") // PENDING, COMPLETED // ADDED STATUS
+  values       Value[]
+  image        Image?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Value {
+  id          String          @id @default(uuid())
+  recordId    String
+  record      Record          @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  fieldId     String
+  field       FieldDefinition @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  value       String  // Could be stringified JSON if we need complex forms, but staying true to standard attributes
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+model Image {
+  id        String   @id @default(uuid())
+  recordId  String   @unique
+  record    Record   @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  uri       String?  // Can be null if using LOCAL_UPLOAD
+  localPath String?  // Can be null if using URI
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  app:
+    image: node:20-alpine
+    working_dir: /app
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/metdb?schema=public
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=my-super-secret-key-for-local-dev-only
+    volumes:
+      - ./:/app
+      - /app/node_modules
+    command: sh -c "npm install && npx prisma generate && until npx prisma migrate deploy; do echo 'Waiting for DB...'; sleep 3; done && npm run dev"
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: metdb
+    ports:
+      - "5433:5432" # Map to 5433 locally so it doesn't conflict with any host Postgres
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_dev_data:
