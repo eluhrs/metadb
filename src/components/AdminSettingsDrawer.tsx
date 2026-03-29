@@ -202,7 +202,7 @@ export default function AdminSettingsDrawer({ isOpen, onClose }: { isOpen: boole
              {activeTab === 'USERS' && (
                <div className="flex flex-col space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
                  
-                 <div className="flex items-center justify-between mb-2">
+                 <div className="flex items-center justify-between mb-3">
                    <h3 className="text-sm font-extrabold tracking-tight text-gray-900 flex items-center space-x-2">
                       <span>User Allow List</span>
                       {!isLoadingList && (
@@ -217,6 +217,10 @@ export default function AdminSettingsDrawer({ isOpen, onClose }: { isOpen: boole
                      Add User
                    </button>
                  </div>
+
+                 <p className="text-xs text-gray-600 mb-4 bg-amber-50 border border-amber-200 p-2.5 rounded-md font-medium leading-relaxed">
+                   <strong className="text-amber-800">Note:</strong> Users on the local allow list must also be added to Google Cloud Console&apos;s <a href="https://console.cloud.google.com/auth/audience?project=metadb-491200" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline font-bold transition-colors">Test User list</a>.
+                 </p>
 
                  <div className="space-y-2.5 relative">
                     
