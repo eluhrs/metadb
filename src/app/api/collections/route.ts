@@ -78,7 +78,7 @@ export async function POST(req: Request) {
     // 3. Batch Create Metadata Values
     for (const row of dataRows) {
       const record = await prisma.record.create({
-        data: { collectionId: collection.id, status: "PENDING" }
+        data: { collectionId: collection.id }
       });
 
       // Map values against auto-generated headers

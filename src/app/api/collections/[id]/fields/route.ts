@@ -53,12 +53,10 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
       });
     });
 
-    await prisma.$transaction(updates);
-
     // --- CUSTOM SCHEMA PRUNING ---
-    // If a custom field (columnIndex === -1) is missing from the React payload, physically delete it from the cluster.
+    // Perform cleanup of deleted custom fields FIRST before executing creates effectively preventing 
+    // new CUIDs from getting caught in the "missing" dragnet mechanically.
     const incomingIds = fields.filter((f: any) => !f.id.startsWith('temp-')).map((f: any) => f.id);
-    
     await prisma.fieldDefinition.deleteMany({
       where: {
         collectionId: params.id,
@@ -66,6 +64,8 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
         id: { notIn: incomingIds }
       }
     });
+
+    await prisma.$transaction(updates);
 
     // --- PROACTIVE CACHE SEEDING ---
     // Extract the new explicitly defined Image field if present

@@ -127,7 +127,6 @@ model Record {
   id           String     @id @default(uuid())
   collectionId String
   collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
-  status       String     @default("PENDING") // PENDING, COMPLETED // ADDED STATUS
   values       Value[]
   image        Image?
   createdAt    DateTime   @default(now())

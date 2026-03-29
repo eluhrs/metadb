@@ -34,7 +34,7 @@ export default async function CatalogingPage(props: { params: Promise<{ id: stri
   const records = await prisma.record.findMany({
     where: { collectionId },
     orderBy: { createdAt: 'asc' },
-    select: { id: true, status: true }
+    select: { id: true }
   });
 
   if (records.length === 0) {

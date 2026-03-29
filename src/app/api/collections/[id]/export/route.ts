@@ -40,7 +40,7 @@ export async function GET(req: Request, props: { params: Promise<{ id: string }>
     });
 
     // Generate CSV
-    const headers = ["Record ID", "MetaDB Status", "Image URI", ...exportFieldsOrder.map((f: any) => f.name)];
+    const headers = [...exportFieldsOrder.map((f: any) => f.name)];
     
     let csvContent = headers.map(h => `"${h.replace(/"/g, '""')}"`).join(",") + "\n";
 
@@ -53,11 +53,7 @@ export async function GET(req: Request, props: { params: Promise<{ id: string }>
          if (val && val.value) activeImageUri = val.value;
       }
 
-      const row = [
-        record.id,
-        record.status,
-        activeImageUri
-      ];
+      const row: string[] = [];
 
       for (const def of exportFieldsOrder) {
         const val = record.values.find((v: any) => v.fieldId === def.id);
