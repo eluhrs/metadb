@@ -6,32 +6,18 @@ import { prisma } from "@/lib/prisma";
 import fs from 'fs';
 import path from 'path';
 
-export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  try {
-    const resolvedParams = await params;
-    const session = await getServerSession(authOptions);
-    if (!session) return new NextResponse("Unauthorized", { status: 401 });
-    
-    // Validate authentication token structure
-    const accessToken = (session as any).accessToken;
-    if (!accessToken) return new NextResponse("No Google access token available in session", { status: 401 });
-
-    const collectionId = resolvedParams.id;
-
-    // Identify the specific `isFile` physical anchor for this exact collection
+async function getMetrics(collectionId: string) {
     const fileField = await prisma.fieldDefinition.findFirst({
       where: { collectionId, isFile: true }
     });
 
-    if (!fileField) return NextResponse.json({ total: 0, cached: 0, debug: "FATAL: Postgres returned zero FieldDefinitions mapped physically to `isFile: true`. Did you execute 'Save Configuration'?" });
+    if (!fileField) return { error: "FATAL: Postgres returned zero FieldDefinitions mapped physically to `isFile: true`. Did you execute 'Save Configuration'?" };
 
-    // Enforce high-performance static cache path mapping globally
     const cacheDir = path.join(process.cwd(), '.next', 'cache', 'metadb-images');
     if (!fs.existsSync(cacheDir)) {
       fs.mkdirSync(cacheDir, { recursive: true });
     }
 
-    // Pull down every physical record to calculate disk-synchronization matrices
     const records = await prisma.record.findMany({
       where: { collectionId },
       include: {
@@ -42,7 +28,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     const googleDriveIds: string[] = [];
 
-    // Structurally parse Drive IDs directly out of the raw value strings falling back to Legacy Subscript images optionally
     for (const record of records) {
       let rawUrl = "";
       if (record.values.length > 0 && record.values[0].value) {
@@ -63,13 +48,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const totalFiles = googleDriveIds.length;
     if (totalFiles === 0) {
       if (records.length === 0) {
-         return NextResponse.json({ total: 0, cached: 0, debug: "FATAL: Postgres successfully loaded Collection, but physically found 0 structural Records inside it!" });
+         return { error: "FATAL: Postgres successfully loaded Collection, but physically found 0 structural Records inside it!" };
       } else {
-         return NextResponse.json({ total: 0, cached: 0, debug: `FATAL: Postgres parsed ${records.length} records, but 0 Google Drive links mapped accurately! Legacy URIs checked: ${records.some(r => r.image?.uri)}` });
+         return { error: `FATAL: Postgres parsed ${records.length} records, but 0 Google Drive links mapped accurately! Legacy URIs checked: ${records.some(r => r.image?.uri)}` };
       }
     }
 
-    // Mathematical scan cross-referencing Linux filesystem bytes
     const missingIds: string[] = [];
     for (const fileId of googleDriveIds) {
       const cachedFilePath = path.join(cacheDir, `${fileId}.blob`);
@@ -79,9 +63,39 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
     }
 
-    const currentlyCached = totalFiles - missingIds.length;
+    return { totalFiles, missingIds, cacheDir, currentlyCached: totalFiles - missingIds.length };
+}
 
-    // Execution block targeting the first 15 files strictly evading generic Serverless 60s crashes
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const resolvedParams = await params;
+    const session = await getServerSession(authOptions);
+    if (!session) return new NextResponse("Unauthorized", { status: 401 });
+    
+    const metrics = await getMetrics(resolvedParams.id);
+    if (metrics.error) return NextResponse.json({ total: 0, cached: 0, debug: metrics.error });
+    
+    return NextResponse.json({ total: metrics.totalFiles, cached: metrics.currentlyCached });
+  } catch (error: any) {
+    console.error("GET Cache Fault:", error);
+    return new NextResponse("Internal Server Error", { status: 500 });
+  }
+}
+
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const resolvedParams = await params;
+    const session = await getServerSession(authOptions);
+    if (!session) return new NextResponse("Unauthorized", { status: 401 });
+    
+    const accessToken = (session as any).accessToken;
+    if (!accessToken) return new NextResponse("No Google access token available in session", { status: 401 });
+
+    const metrics = await getMetrics(resolvedParams.id);
+    if (metrics.error) return NextResponse.json({ total: 0, cached: 0, debug: metrics.error });
+
+    const { totalFiles, missingIds, cacheDir, currentlyCached } = metrics as any;
+
     const BATCH_LIMIT = 15;
     const processingBatch = missingIds.slice(0, BATCH_LIMIT);
 
@@ -89,7 +103,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
        return NextResponse.json({ total: totalFiles, cached: totalFiles });
     }
 
-    // Spin up Google Drive runtime client natively passing the Session Token
     const auth = new google.auth.OAuth2();
     auth.setCredentials({ access_token: accessToken });
     const drive = google.drive({ version: 'v3', auth });
@@ -113,7 +126,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         newlyCached++;
       } catch (err) {
         console.error(`Failed to mathematically cache physical binary blob for ${fileId}`, err);
-        // Silently drop an isolated error tracking token bypassing infinite recursive loops on broken Drive URLs
         fs.writeFileSync(path.join(cacheDir, `${fileId}.error`), "FAILED");
         newlyCached++;
       }

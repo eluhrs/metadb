@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -111,9 +111,8 @@ function SortableFieldRow({ f, updateField, deleteField, handleComplexToggle, is
                ) : (
                  <button
                    onClick={(e) => { e.preventDefault(); onPreCache?.(); }}
-                   disabled={cacheState?.completed}
-                   className={`${cacheState?.completed ? 'bg-green-50 text-green-700 border border-green-200 cursor-default opacity-80' : 'bg-gray-50 text-gray-500 border border-gray-200 hover:bg-gray-100 hover:text-gray-700 shadow-sm'} transition-colors text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1 uppercase tracking-wider`}
-                   title={cacheState?.completed ? "Media Successfully Cached" : "Pre-Cache Native Google Drive Blobs"}
+                   className={`${cacheState?.completed ? 'bg-green-50 text-green-700 border border-green-200 opacity-80 hover:bg-green-100 hover:text-green-800' : 'bg-gray-50 text-gray-500 border border-gray-200 hover:bg-gray-100 hover:text-gray-700 shadow-sm'} transition-colors text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1 uppercase tracking-wider`}
+                   title={cacheState?.completed ? "Media Successfully Cached. Click to re-sync any newly added images." : "Pre-Cache Native Google Drive Blobs"}
                  >
                    {cacheState?.completed ? (
                       <>
@@ -270,7 +269,19 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
   const [selectedVocabTerms, setSelectedVocabTerms] = useState<string[]>([]);
   const [isConfirmingWrite, setIsConfirmingWrite] = useState(false);
 
-  const [cacheState, setCacheState] = useState<{ active: boolean, total: number, cached: number }>({ active: false, total: 0, cached: 0 });
+  const [cacheState, setCacheState] = useState<{ active: boolean, total: number, cached: number, completed?: boolean, error?: string }>({ active: false, total: 0, cached: 0 });
+
+  useEffect(() => {
+    if (hasFileFieldSelected) {
+       fetch(`/api/collections/${collection.id}/cache`)
+         .then(res => res.json())
+         .then(data => {
+            if (data.total > 0 && data.total === data.cached) {
+               setCacheState(prev => ({ ...prev, completed: true }));
+            }
+         }).catch(console.error);
+    }
+  }, [collection.id, hasFileFieldSelected]);
 
   const handlePreCache = async () => {
     setCacheState({ active: true, total: 0, cached: 0, completed: false } as any);
