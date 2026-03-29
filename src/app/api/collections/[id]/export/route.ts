@@ -30,11 +30,16 @@ export async function GET(req: Request, props: { params: Promise<{ id: string }>
 
     // Sort the field configuration based on user-approved export rules
     const exportFieldsOrder = [...collection.fieldDefinitions].sort((a: any, b: any) => {
+      const aIsCustom = a.columnIndex === null || a.columnIndex === -1;
+      const bIsCustom = b.columnIndex === null || b.columnIndex === -1;
+
       // 1. If both are imported from original CSV, sort by exact native column index
-      if (a.columnIndex !== null && b.columnIndex !== null) return a.columnIndex - b.columnIndex;
+      if (!aIsCustom && !bIsCustom) return a.columnIndex - b.columnIndex;
+      
       // 2. Original columns ALWAYS predate manually appended columns
-      if (a.columnIndex !== null && b.columnIndex === null) return -1;
-      if (a.columnIndex === null && b.columnIndex !== null) return 1;
+      if (!aIsCustom && bIsCustom) return -1;
+      if (aIsCustom && !bIsCustom) return 1;
+      
       // 3. For any randomly appended manual fields, arrange them by the Drag-and-Drop GUI hierarchy!
       return (a.uiOrder || 0) - (b.uiOrder || 0);
     });
