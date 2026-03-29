@@ -45,7 +45,10 @@ export async function GET(req: Request, props: { params: Promise<{ id: string }>
     });
 
     // Generate CSV
-    const headers = [...exportFieldsOrder.map((f: any) => f.name)];
+    const headers = [...exportFieldsOrder.map((f: any) => {
+      const isCustom = f.columnIndex === null || f.columnIndex === -1;
+      return isCustom ? `metadb_${f.name}` : f.name;
+    })];
     
     let csvContent = headers.map(h => `"${h.replace(/"/g, '""')}"`).join(",") + "\n";
 
