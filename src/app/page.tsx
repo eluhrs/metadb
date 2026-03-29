@@ -16,10 +16,10 @@ export default async function Home() {
         </h1>
         <div className="space-y-4 max-w-xl z-20 relative">
           <p className="text-base md:text-lg lg:text-xl text-slate-600 leading-relaxed font-light">
-            MetaDB is a web-based cataloging tool for the <a href="https://dss.lafayette.edu/collections/east-asia-image-collection/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline transition-colors font-medium pointer-events-auto">East Asia Image Collection</a>, facilitating distributed metadata creation with high-resolution image navigation.
+            MetaDB is a specialized cataloging tool for the <a href="https://dss.lafayette.edu/collections/east-asia-image-collection/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline transition-colors font-medium pointer-events-auto">East Asia Image Collection</a>, facilitating distributed metadata creation with high-resolution image navigation.
           </p>
           <p className="text-base md:text-lg lg:text-xl text-slate-600 leading-relaxed font-light">
-            It integrates Google Docs and Gemini-powered AI to streamline descriptive workflows, providing a specialized environment that enables collaborative description of archival image collections.
+            It integrates Google Docs and Gemini-powered AI to streamline descriptive workflows, providing an environment that enables collaborative description of archival image collections.
           </p>
         </div>
       </div>
