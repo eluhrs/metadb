@@ -94,6 +94,20 @@ export function ImageViewer({ imageUri, imageTitle = "Attached Context", isPopup
     }
   };
 
+  const handleRotateLeft = () => {
+    if (osdRef.current && osdRef.current.viewport) {
+      const currentRotation = osdRef.current.viewport.getRotation();
+      osdRef.current.viewport.setRotation(currentRotation - 90);
+    }
+  };
+
+  const handleRotateRight = () => {
+    if (osdRef.current && osdRef.current.viewport) {
+      const currentRotation = osdRef.current.viewport.getRotation();
+      osdRef.current.viewport.setRotation(currentRotation + 90);
+    }
+  };
+
   const handlePopupAction = () => {
     if (isPopupMode) {
       window.close();
@@ -120,6 +134,25 @@ export function ImageViewer({ imageUri, imageTitle = "Attached Context", isPopup
       
       {/* Unified Horizontal Action Overlay */}
       <div className="absolute bottom-2.5 right-2.5 flex flex-row space-x-2.5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20 pointer-events-auto">
+        <button 
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRotateLeft(); }}
+          className="bg-slate-900 border border-zinc-700/50 hover:bg-black text-zinc-300 hover:text-white p-2.5 rounded-full shadow-lg transition-all focus:outline-none flex items-center justify-center transform hover:scale-105"
+          title="Rotate Left"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+          </svg>
+        </button>
+        <button 
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRotateRight(); }}
+          className="bg-slate-900 border border-zinc-700/50 hover:bg-black text-zinc-300 hover:text-white p-2.5 rounded-full shadow-lg transition-all focus:outline-none flex items-center justify-center transform hover:scale-105"
+          title="Rotate Right"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6" />
+          </svg>
+        </button>
+        <div className="w-[1px] h-[24px] bg-zinc-700/50 my-auto mx-1 shadow-sm"></div>
         <button 
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleZoomOut(); }}
           className="bg-slate-900 border border-zinc-700/50 hover:bg-black text-zinc-300 hover:text-white p-2.5 rounded-full shadow-lg transition-all focus:outline-none flex items-center justify-center transform hover:scale-105"
