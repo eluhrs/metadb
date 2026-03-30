@@ -102,7 +102,7 @@ export function ImageViewer({ imageUri, imageTitle = "Attached Context", isPopup
       const popupHeight = Math.min(900, window.innerHeight);
       const leftConstraint = window.screenX + (window.outerWidth / 2) - (popupWidth / 2);
       window.open(
-         `/scratchpad/display-options/popup?image=${activeImageUri_encoded}&title=${encodeURIComponent(imageTitle)}`, 
+         `/popup?image=${activeImageUri_encoded}&title=${encodeURIComponent(imageTitle)}`, 
          'MetaDB_DeepZoom_Viewer', 
          `popup=yes,width=${popupWidth},height=${popupHeight},left=${leftConstraint}`
       );
