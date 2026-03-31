@@ -52,6 +52,10 @@ export default async function Dashboard() {
             const match = firstImageUri.match(/\/d\/([a-zA-Z0-9-_]+)/) || firstImageUri.match(/id=([a-zA-Z0-9-_]+)/);
             fileId = match ? match[1] : "";
           }
+          let finalThumbnailSrc = fileId ? `/api/images/proxy/${fileId}` : (firstImageUri || "");
+          if (finalThumbnailSrc && !finalThumbnailSrc.startsWith("http") && !finalThumbnailSrc.startsWith("/") && !finalThumbnailSrc.startsWith("data:")) {
+             finalThumbnailSrc = `/${finalThumbnailSrc}`;
+          }
           const dateStarted = new Date(col.createdAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
           
           return (
@@ -62,7 +66,7 @@ export default async function Dashboard() {
                   <div className="w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 bg-gray-100 rounded-lg border border-gray-200 overflow-hidden relative shadow-sm flex items-center justify-center">
                     {firstImageUri ? (
                       <Image 
-                        src={fileId ? `/api/images/proxy/${fileId}` : firstImageUri}
+                        src={finalThumbnailSrc}
                         alt={`${col.name} Thumbnail`}
                         fill
                         className="object-cover transition-transform group-hover:scale-105 duration-500"
