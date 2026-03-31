@@ -6,15 +6,7 @@ datasource db {
   provider = "postgresql"
 }
 
-enum Role {
-  LIBRARIAN
-  SPECIALIST
-}
-
-enum ImageStrategy {
-  URI
-  LOCAL_UPLOAD
-}
+// Enums replaced with static String literals to bypass adapter-pg custom type casting crashes on server instances
 
 enum FieldType {
   SHORT_TEXT
@@ -31,7 +23,7 @@ model User {
   email         String?   @unique
   emailVerified DateTime?
   image         String?
-  role          Role      @default(SPECIALIST)
+  role          String    @default("SPECIALIST")
   accounts      Account[]
   sessions      Session[]
   createdAt     DateTime  @default(now())
@@ -83,7 +75,7 @@ model VerificationToken {
 model Collection {
   id               String            @id @default(uuid())
   name             String
-  imageStrategy    ImageStrategy     @default(URI)
+  imageStrategy    String            @default("URI")
   externalSheetUrl String?
   fieldDefinitions FieldDefinition[]
   records          Record[]
