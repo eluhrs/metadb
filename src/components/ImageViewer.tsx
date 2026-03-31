@@ -9,31 +9,32 @@ export function ImageViewer({ imageUri, secondaryImageUri, imageTitle = "Attache
 
   const activeRenderUri = showSecondary && secondaryImageUri ? secondaryImageUri : imageUri;
 
+  // Cross-Record Navigation Hook
+  useEffect(() => {
+     setShowSecondary(false);
+  }, [imageUri]);
+
+  // Primary Viewer Boot / Hot-Swap Mechanism
   useEffect(() => {
     if (!viewerRef.current || !activeRenderUri) return;
+
+    const hotSwapUrl = activeRenderUri.includes("drive.google.com") || activeRenderUri.includes("docs.google.com")
+       ? `/api/images/proxy?url=${encodeURIComponent(activeRenderUri)}`
+       : activeRenderUri;
 
     if (!osdRef.current) {
       let isMounted = true;
       (async () => {
-        // Dynamically load OpenSeadragon precisely on the client to entirely bypass Next.js SSR crashes
         const OpenSeadragon = (await import("openseadragon")).default;
-        
-        // CRITICAL: If React unmounted this component while we were asynchronously awaiting the binary, abort instantly!
         if (!isMounted) return;
 
         const viewer = OpenSeadragon({
           element: viewerRef.current!,
           prefixUrl: "https://openseadragon.github.io/openseadragon/images/", 
-          tileSources: {
-            type: 'image',
-            // Automatically route Google Drive URLs through our secure Next.js Server Proxy to bypass CORS!
-            url: activeRenderUri.includes("drive.google.com") || activeRenderUri.includes("docs.google.com")
-              ? `/api/images/proxy?url=${encodeURIComponent(activeRenderUri)}&t=${Date.now()}`
-              : activeRenderUri,
-          },
+          tileSources: { type: 'image', url: hotSwapUrl },
           showNavigationControl: false,
-          animationTime: 0.5,
-          blendTime: 0.1,
+          animationTime: 0,
+          blendTime: 0,
           constrainDuringPan: true,
           maxZoomPixelRatio: 3,
           minZoomImageRatio: 0.8,
@@ -48,7 +49,7 @@ export function ImageViewer({ imageUri, secondaryImageUri, imageTitle = "Attache
               viewer.viewport.goHome(true);
               viewer.forceRedraw();
             }
-          }, 150);
+          }, 50);
         });
 
         let lastWidth = viewerRef.current!.clientWidth;
@@ -56,43 +57,22 @@ export function ImageViewer({ imageUri, secondaryImageUri, imageTitle = "Attache
 
         const observer = new ResizeObserver(() => {
           if (!viewerRef.current) return;
-          
           const newWidth = viewerRef.current.clientWidth;
           const newHeight = viewerRef.current.clientHeight;
-          
-          // Strict boundary checking: only reset the viewport Home state if the physical window/resizer dragging mutated the canvas dimension mathematically!
           if (Math.abs(newWidth - lastWidth) > 5 || Math.abs(newHeight - lastHeight) > 5) {
-             lastWidth = newWidth;
-             lastHeight = newHeight;
-             
-             if (viewer && viewer.viewport) {
-               viewer.viewport.goHome(true);
-             }
+             lastWidth = newWidth; lastHeight = newHeight;
+             if (viewer && viewer.viewport) viewer.viewport.goHome(true);
           }
         });
         observer.observe(viewerRef.current!);
-        
-        // Cache observer entirely onto the viewer object avoiding global variables during hot-swaps!
         (viewer as any)._customObserver = observer;
       })();
-
-      return () => {
-        isMounted = false;
-      };
+      return () => { isMounted = false; };
     } else {
-      // Hot-Swap Image Logic: If the viewer natively exists, safely push the new image via URL directly into the engine!
-      const hotSwapUrl = activeRenderUri.includes("drive.google.com") || activeRenderUri.includes("docs.google.com")
-         ? `/api/images/proxy?url=${encodeURIComponent(activeRenderUri)}&t=${Date.now()}`
-         : activeRenderUri;
-         
-      osdRef.current.open({
-         type: 'image',
-         url: hotSwapUrl
-      });
+      osdRef.current.open({ type: 'image', url: hotSwapUrl });
     }
   }, [activeRenderUri]);
 
-  // Execute terminal DOM obliteration exactly once when closing the overarching tool
   useEffect(() => {
     return () => {
       if (osdRef.current) {
@@ -104,20 +84,21 @@ export function ImageViewer({ imageUri, secondaryImageUri, imageTitle = "Attache
   }, []);
 
   const handleZoomIn = () => {
-    if (osdRef.current && osdRef.current.viewport) {
+    if (osdRef.current?.viewport) {
       osdRef.current.viewport.zoomBy(1.5);
       osdRef.current.viewport.applyConstraints();
     }
   };
   
   const handleZoomOut = () => {
-    if (osdRef.current && osdRef.current.viewport) {
+    if (osdRef.current?.viewport) {
       osdRef.current.viewport.zoomBy(0.66);
       osdRef.current.viewport.applyConstraints();
     }
   };
+  
   const handleRotateRight = () => {
-    if (osdRef.current && osdRef.current.viewport) {
+    if (osdRef.current?.viewport) {
       const currentRotation = osdRef.current.viewport.getRotation();
       osdRef.current.viewport.setRotation(currentRotation + 90);
     }
@@ -147,7 +128,7 @@ export function ImageViewer({ imageUri, secondaryImageUri, imageTitle = "Attache
     <div className="relative w-full h-full group">
       <div 
         ref={viewerRef} 
-        className="absolute top-0 left-0 w-full h-full bg-black/5" 
+        className="absolute top-0 left-0 w-full h-full bg-black/5 transition-opacity duration-150" 
       />
       
       {/* Unified Horizontal Action Overlay */}
