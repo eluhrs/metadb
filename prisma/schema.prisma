@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // Enums replaced with static String literals to bypass adapter-pg custom type casting crashes on server instances
