@@ -12,9 +12,8 @@ export default async function Dashboard() {
   const session = await getServerSession(authOptions);
   const isAdmin = Boolean(session?.user && (session.user as any).role === "LIBRARIAN");
 
-  const collections = await prisma.collection.findMany({
+  const rawCollections = await prisma.collection.findMany({
     include: { 
-      _count: { select: { records: true } },
       fieldDefinitions: true,
       records: { 
         take: 1, 
@@ -23,6 +22,17 @@ export default async function Dashboard() {
       }
     },
     orderBy: { createdAt: "desc" }
+  });
+
+  // Calculate generic counts via standalone raw aggregation to bypass adapter subquery parse bugs locally 
+  const counts = await prisma.record.groupBy({
+    by: ['collectionId'],
+    _count: { id: true }
+  });
+
+  const collections = rawCollections.map((col: any) => {
+    const matchedCount = counts.find((c: any) => c.collectionId === col.id)?._count.id || 0;
+    return { ...col, _count: { records: matchedCount } };
   });
 
   return (
