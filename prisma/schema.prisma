@@ -100,6 +100,7 @@ model FieldDefinition {
   
   // Field Types & Toggles
   isFile             Boolean    @default(false)
+  isSecondaryFile    Boolean    @default(false)
   isLong             Boolean    @default(false)
   isAdministrative   Boolean    @default(false)
   isBulk             Boolean    @default(false)
@@ -148,8 +149,9 @@ model Image {
   id        String   @id @default(uuid())
   recordId  String   @unique
   record    Record   @relation(fields: [recordId], references: [id], onDelete: Cascade)
-  uri       String?  // Can be null if using LOCAL_UPLOAD
-  localPath String?  // Can be null if using URI
+  uri          String?  // Can be null if using LOCAL_UPLOAD
+  secondaryUri String?  // Optional File 2 string
+  localPath    String?  // Can be null if using URI
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

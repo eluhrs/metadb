@@ -26,6 +26,7 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
       const payload = {
         name: f.name,
         isFile: f.isFile,
+        isSecondaryFile: f.isSecondaryFile,
         isAdministrative: f.isAdministrative,
         isLong: f.isLong,
         isBulk: f.isBulk,

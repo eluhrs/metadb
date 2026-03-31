@@ -11,6 +11,7 @@ export function CatalogingClient({
   recordsLength, 
   safeIndex, 
   activeImageUri, 
+  secondaryImageUri,
   currentRecord 
 }: { 
   collection: any, 
@@ -18,6 +19,7 @@ export function CatalogingClient({
   recordsLength: number, 
   safeIndex: number, 
   activeImageUri: string | null, 
+  secondaryImageUri: string | null,
   currentRecord: any 
 }) {
   const [activeTab, setActiveTab] = useState<'desc' | 'admin'>('desc');
@@ -40,10 +42,10 @@ export function CatalogingClient({
   useEffect(() => {
     if (activeImageUri) {
       const channel = new BroadcastChannel('metadb_image_sync');
-      channel.postMessage({ type: 'SYNC_IMAGE', uri: activeImageUri, title: popupTitle });
+      channel.postMessage({ type: 'SYNC_IMAGE', uri: activeImageUri, secondaryUri: secondaryImageUri, title: popupTitle });
       channel.close();
     }
-  }, [activeImageUri, currentRecord, collection, popupTitle]);
+  }, [activeImageUri, secondaryImageUri, currentRecord, collection, popupTitle]);
 
   // Handle Dragging Events
   const handleMouseMove = useCallback((e: MouseEvent) => {
@@ -159,13 +161,13 @@ export function CatalogingClient({
         >
           {/* Constrained 1:1 Aspect Square for OSD Rendering */}
           <div className="relative w-full aspect-square max-h-[80vh] max-w-full bg-zinc-900 border-2 border-zinc-700 rounded-lg flex flex-col p-4 shadow-inner overflow-hidden">
-             <div className="flex-1 w-full relative bg-black rounded shadow-[0_0_20px_rgba(0,0,0,1)] overflow-hidden">
+              <div className="flex-1 w-full relative bg-black rounded shadow-[0_0_20px_rgba(0,0,0,1)] overflow-hidden">
                  {activeImageUri ? (
-                   <ImageViewer key={activeImageUri} imageUri={activeImageUri} imageTitle={popupTitle} />
+                   <ImageViewer key={activeImageUri} imageUri={activeImageUri} secondaryImageUri={secondaryImageUri || undefined} imageTitle={popupTitle} />
                  ) : (
-                    <div className="text-gray-500 italic text-sm flex items-center justify-center h-full">No Image Assigend</div>
+                    <div className="text-gray-500 italic text-sm flex items-center justify-center h-full">No Image Assigned</div>
                  )}
-             </div>
+              </div>
           </div>
         </div>
 

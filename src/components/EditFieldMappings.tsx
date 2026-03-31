@@ -26,6 +26,7 @@ type FieldDefinition = {
   id: string;
   name: string;
   isFile: boolean;
+  isSecondaryFile: boolean;
   isAdministrative: boolean;
   isLong: boolean;
   isBulk: boolean;
@@ -43,7 +44,7 @@ type FieldDefinition = {
 };
 
 // Sortable Row Component
-function SortableFieldRow({ f, updateField, deleteField, handleComplexToggle, isOverlay = false, hasFileFieldSelected = false, cacheState, onPreCache }: any) {
+function SortableFieldRow({ f, updateField, deleteField, handleComplexToggle, isOverlay = false, hasFileFieldSelected = false, hasFile2Selected = false, cacheState, onPreCache }: any) {
   const {
     attributes,
     listeners,
@@ -84,7 +85,7 @@ function SortableFieldRow({ f, updateField, deleteField, handleComplexToggle, is
           </svg>
         </button>
       </td>
-      <td className="px-3 py-3 min-w-[280px] w-full">
+      <td className="px-3 py-3 min-w-[340px] w-full">
         <div className="flex flex-row items-center gap-2 w-full">
           <input 
             type="text" 
@@ -92,7 +93,7 @@ function SortableFieldRow({ f, updateField, deleteField, handleComplexToggle, is
             onChange={(e) => updateField(f.id, { name: e.target.value })}
             className="w-full border-gray-300 rounded px-2 py-1.5 focus:ring-blue-500 focus:border-blue-500 font-medium bg-transparent hover:bg-white transition-colors" 
           />
-          {f.isFile && (
+          {(f.isFile || f.isSecondaryFile) && (
             <div className="flex-shrink-0 flex items-center pr-1">
                {cacheState?.active ? (
                   <div className="w-24 lg:w-32 h-[26px] bg-slate-200 rounded overflow-hidden border border-slate-300 relative shadow-inner">
@@ -145,26 +146,38 @@ function SortableFieldRow({ f, updateField, deleteField, handleComplexToggle, is
       </td>
 
       <td className="px-2 py-3 text-center border-l border-r border-gray-200">
-        <label className={`flex items-center justify-center ${!f.isFile && hasFileFieldSelected ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+        <label className={`flex items-center justify-center ${(!f.isFile && hasFileFieldSelected) || f.isSecondaryFile ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
           <input 
             type="checkbox" 
             checked={f.isFile}
-            disabled={!f.isFile && hasFileFieldSelected}
+            disabled={(!f.isFile && hasFileFieldSelected) || f.isSecondaryFile}
             onChange={(e) => updateField(f.id, { isFile: e.target.checked })} 
-            className={`w-4 h-4 text-blue-600 rounded ${!f.isFile && hasFileFieldSelected ? 'cursor-not-allowed bg-gray-300 border-gray-400 shadow-inner' : ''}`} 
+            className={`w-4 h-4 text-blue-600 rounded ${(!f.isFile && hasFileFieldSelected) || f.isSecondaryFile ? 'cursor-not-allowed bg-gray-300 border-gray-400 shadow-inner' : ''}`} 
           />
         </label>
       </td>
 
       <td className="px-2 py-3 text-center border-r border-gray-200">
-        <label className={`flex items-center justify-center ${f.isFile ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
-          <input disabled={f.isFile} type="checkbox" checked={f.isLong} onChange={(e) => updateField(f.id, { isLong: e.target.checked })} className={`w-4 h-4 rounded text-blue-600 ${f.isFile ? 'cursor-not-allowed bg-gray-300 border-gray-400 shadow-inner opacity-50' : ''}`} />
+        <label className={`flex items-center justify-center ${(!f.isSecondaryFile && hasFile2Selected) || f.isFile ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+          <input 
+            type="checkbox" 
+            checked={f.isSecondaryFile}
+            disabled={(!f.isSecondaryFile && hasFile2Selected) || f.isFile}
+            onChange={(e) => updateField(f.id, { isSecondaryFile: e.target.checked })} 
+            className={`w-4 h-4 text-emerald-600 rounded ${(!f.isSecondaryFile && hasFile2Selected) || f.isFile ? 'cursor-not-allowed bg-gray-300 border-gray-400 shadow-inner' : ''}`} 
+          />
         </label>
       </td>
 
       <td className="px-2 py-3 text-center border-r border-gray-200">
-        <label className={`flex items-center justify-center ${f.isFile || f.isLong ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
-          <input disabled={f.isFile || f.isLong} type="checkbox" checked={f.isBulk} onChange={(e) => updateField(f.id, { isBulk: e.target.checked })} className={`w-4 h-4 rounded text-blue-600 ${f.isFile || f.isLong ? 'cursor-not-allowed bg-gray-300 border-gray-400 shadow-inner opacity-50' : ''}`} />
+        <label className={`flex items-center justify-center ${f.isFile || f.isSecondaryFile ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+          <input disabled={f.isFile || f.isSecondaryFile} type="checkbox" checked={f.isLong} onChange={(e) => updateField(f.id, { isLong: e.target.checked })} className={`w-4 h-4 rounded text-blue-600 ${f.isFile || f.isSecondaryFile ? 'cursor-not-allowed bg-gray-300 border-gray-400 shadow-inner opacity-50' : ''}`} />
+        </label>
+      </td>
+
+      <td className="px-2 py-3 text-center border-r border-gray-200">
+        <label className={`flex items-center justify-center ${f.isFile || f.isSecondaryFile || f.isLong ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+          <input disabled={f.isFile || f.isSecondaryFile || f.isLong} type="checkbox" checked={f.isBulk} onChange={(e) => updateField(f.id, { isBulk: e.target.checked })} className={`w-4 h-4 rounded text-blue-600 ${f.isFile || f.isSecondaryFile || f.isLong ? 'cursor-not-allowed bg-gray-300 border-gray-400 shadow-inner opacity-50' : ''}`} />
         </label>
       </td>
       
@@ -182,8 +195,8 @@ function SortableFieldRow({ f, updateField, deleteField, handleComplexToggle, is
       <td className="px-3 py-3 text-center border-r border-gray-200">
         <button 
           onClick={() => handleComplexToggle(f, 'write')}
-          disabled={f.isFile}
-          className={`px-3 py-1 text-[11px] font-bold rounded transition shadow-sm ${f.isFile ? 'bg-gray-100 text-gray-400 opacity-60 cursor-not-allowed border border-gray-200' : 'bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700 border border-red-200'}`}
+          disabled={f.isFile || f.isSecondaryFile}
+          className={`px-3 py-1 text-[11px] font-bold rounded transition shadow-sm ${f.isFile || f.isSecondaryFile ? 'bg-gray-100 text-gray-400 opacity-60 cursor-not-allowed border border-gray-200' : 'bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700 border border-red-200'}`}
         >
           text
         </button>
@@ -192,7 +205,7 @@ function SortableFieldRow({ f, updateField, deleteField, handleComplexToggle, is
       <td className="px-3 py-3 text-center border-l border-r border-gray-200">
         <ToggleButton 
           active={f.isControlled} 
-          disabled={f.isFile || f.isLong}
+          disabled={f.isFile || f.isSecondaryFile || f.isLong}
           label="Terms" 
           onClick={() => handleComplexToggle(f, 'controlled')} 
         />
@@ -201,7 +214,7 @@ function SortableFieldRow({ f, updateField, deleteField, handleComplexToggle, is
       <td className="px-3 py-3 text-center border-r border-gray-200">
         <ToggleButton 
           active={isAi} 
-          disabled={f.isLocked || f.isFile}
+          disabled={f.isLocked || f.isFile || f.isSecondaryFile}
           label="Prompt" 
           onClick={() => handleComplexToggle(f, 'ai')} 
         />
@@ -258,9 +271,10 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
     return [...collection.fieldDefinitions].sort((a: any, b: any) => (a.uiOrder || 0) - (b.uiOrder || 0));
   });
 
-  const descriptiveFields = fields.filter(f => !f.isAdministrative);
+  const descriptiveFields = fields.filter((f) => !f.isAdministrative).sort((a,b) => a.uiOrder - b.uiOrder);
   const administrativeFields = fields.filter(f => f.isAdministrative);
   const hasFileFieldSelected = fields.some(f => f.isFile);
+  const hasFile2Selected = fields.some(f => f.isSecondaryFile);
   
   const [activeDragField, setActiveDragField] = useState<FieldDefinition | null>(null);
   const [modalOpen, setModalOpen] = useState<'ai' | 'controlled' | 'write' | null>(null);
@@ -269,28 +283,31 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
   const [selectedVocabTerms, setSelectedVocabTerms] = useState<string[]>([]);
   const [isConfirmingWrite, setIsConfirmingWrite] = useState(false);
 
-  const [cacheState, setCacheState] = useState<{ active: boolean, total: number, cached: number, completed?: boolean, error?: string }>({ active: false, total: 0, cached: 0 });
+  const [cacheStates, setCacheStates] = useState<Record<string, { active: boolean, total: number, cached: number, completed?: boolean, error?: string }>>({});
 
   useEffect(() => {
-    if (hasFileFieldSelected) {
-       fetch(`/api/collections/${collection.id}/cache`)
-         .then(res => res.json())
-         .then(data => {
-            if (data.total > 0 && data.total === data.cached) {
-               setCacheState(prev => ({ ...prev, completed: true }));
-            }
-         }).catch(console.error);
+    if (hasFileFieldSelected || hasFile2Selected) {
+       const fileFields = fields.filter(f => f.isFile || f.isSecondaryFile);
+       fileFields.forEach(f => {
+         fetch(`/api/collections/${collection.id}/cache?fieldId=${f.id}`)
+           .then(res => res.json())
+           .then(data => {
+              if (data.total > 0 && data.total === data.cached) {
+                 setCacheStates(prev => ({ ...prev, [f.id]: { active: false, total: data.total, cached: data.cached, completed: true } }));
+              }
+           }).catch(console.error);
+       });
     }
-  }, [collection.id, hasFileFieldSelected]);
+  }, [collection.id, hasFileFieldSelected, hasFile2Selected]);
 
-  const handlePreCache = async () => {
-    setCacheState({ active: true, total: 0, cached: 0, completed: false } as any);
+  const handlePreCache = async (fieldId: string) => {
+    setCacheStates(prev => ({ ...prev, [fieldId]: { active: true, total: 0, cached: 0, completed: false } }));
     let isComplete = false;
     let currentTotal = 0;
     
     while (!isComplete) {
        try {
-         const res = await fetch(`/api/collections/${collection.id}/cache`, { method: 'POST' });
+         const res = await fetch(`/api/collections/${collection.id}/cache?fieldId=${fieldId}`, { method: 'POST' });
          if (!res.ok) {
             const errorText = await res.text().catch(() => "Unknown Server Crash");
             throw new Error(`HTTP ${res.status}: ${errorText}`);
@@ -300,22 +317,24 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
          currentTotal = data.total;
 
          if (data.debug) {
-            setCacheState({ active: false, total: 0, cached: 0, completed: false, error: data.debug } as any);
+            setCacheStates(prev => ({ ...prev, [fieldId]: { active: false, total: 0, cached: 0, completed: false, error: data.debug } }));
             return;
          }
 
-         setCacheState({ active: true, total: currentTotal, cached: data.cached, completed: false } as any);
+         setCacheStates(prev => ({ ...prev, [fieldId]: { active: true, total: currentTotal, cached: data.cached, completed: false } }));
          
          if (currentTotal === 0 || data.cached >= currentTotal) {
             isComplete = true;
          }
        } catch (e: any) {
          console.error(e);
-         setCacheState({ active: false, total: 0, cached: 0, completed: false, error: e.message } as any);
+         setCacheStates(prev => ({ ...prev, [fieldId]: { active: false, total: 0, cached: 0, completed: false, error: e.message } }));
          return; // Abort the UI loop without triggering the 1.5s 'completed' green tick!
        }
     }
-    setTimeout(() => setCacheState({ active: false, total: currentTotal, cached: currentTotal, completed: true } as any), 1500);
+    setTimeout(() => {
+       setCacheStates(prev => ({ ...prev, [fieldId]: { active: false, total: currentTotal, cached: currentTotal, completed: true } }));
+    }, 1500);
   };
 
   const handleAddField = () => {
@@ -323,6 +342,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
       id: `temp-${Math.random().toString(36).substr(2, 9)}`,
       name: `Custom Field`,
       isFile: false,
+      isSecondaryFile: false,
       isAdministrative: false,
       isLong: false,
       isBulk: false,
@@ -560,8 +580,9 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                 <thead className="bg-gray-50 text-gray-600 text-[10px] uppercase tracking-wider border-b border-gray-200">
                   <tr>
                     <th className="px-2 py-3 w-8 text-center font-semibold text-gray-400">Move</th>
-                    <th className="px-3 py-3 font-semibold text-gray-600 min-w-[280px]">Field Name</th>
-                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-l border-r border-gray-200" title="File/Image URI">File</th>
+                    <th className="px-3 py-3 font-semibold text-gray-600 min-w-[340px]">Field Name</th>
+                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-l border-r border-gray-200" title="Primary Image URI">File 1</th>
+                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Secondary Image URI">File 2</th>
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Long Text Area">Long</th>
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200">Bulk</th>
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Lock Manual Input">Lock</th>
@@ -574,7 +595,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                 </thead>
                 <DroppableTableBody id="desc" items={descriptiveFields.map(f => f.id)}>
                   {descriptiveFields.map((f) => (
-                    <SortableFieldRow key={f.id} f={f} updateField={updateField} deleteField={deleteField} handleComplexToggle={handleComplexToggle} hasFileFieldSelected={hasFileFieldSelected} cacheState={cacheState} onPreCache={handlePreCache} />
+                    <SortableFieldRow key={f.id} f={f} updateField={updateField} deleteField={deleteField} handleComplexToggle={handleComplexToggle} hasFileFieldSelected={hasFileFieldSelected} hasFile2Selected={hasFile2Selected} cacheState={cacheStates[f.id]} onPreCache={() => handlePreCache(f.id)} />
                   ))}
                 </DroppableTableBody>
               </table>
@@ -592,8 +613,8 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                   <tr>
                     <th className="px-2 py-3 w-8 text-center font-semibold text-gray-400">Move</th>
                     <th className="px-3 py-3 font-semibold text-gray-600 min-w-[280px]">Field Name</th>
-                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-l border-r border-gray-200" title="File/Image URI">File</th>
-                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Long Text Area">Long</th>
+                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-l border-r border-gray-200" title="Administrative Fields Cannot Act As Files"></th>
+                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200">Long</th>
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200">Bulk</th>
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Lock Manual Input">Lock</th>
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Global Database Overwrite">Write</th>
@@ -605,7 +626,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                 </thead>
                 <DroppableTableBody id="admin" items={administrativeFields.map(f => f.id)}>
                   {administrativeFields.map((f) => (
-                    <SortableFieldRow key={f.id} f={f} updateField={updateField} deleteField={deleteField} handleComplexToggle={handleComplexToggle} hasFileFieldSelected={hasFileFieldSelected} cacheState={cacheState} onPreCache={handlePreCache} />
+                    <SortableFieldRow key={f.id} f={f} updateField={updateField} deleteField={deleteField} handleComplexToggle={handleComplexToggle} hasFileFieldSelected={hasFileFieldSelected} hasFile2Selected={hasFile2Selected} cacheState={cacheStates[f.id]} onPreCache={() => handlePreCache(f.id)} />
                   ))}
                 </DroppableTableBody>
               </table>
@@ -616,7 +637,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
             {activeDragField ? (
               <table className="w-full bg-white shadow-xl ring-2 ring-blue-500 rounded-lg overflow-hidden" style={{ borderCollapse: 'initial', borderSpacing: 0 }}>
                 <tbody>
-                  <SortableFieldRow f={activeDragField} updateField={() => {}} handleComplexToggle={() => {}} isOverlay={true} cacheState={cacheState} onPreCache={() => {}} />
+                  <SortableFieldRow f={activeDragField} updateField={() => {}} handleComplexToggle={() => {}} isOverlay={true} cacheState={cacheStates[activeDragField.id]} onPreCache={() => {}} />
                 </tbody>
               </table>
             ) : null}

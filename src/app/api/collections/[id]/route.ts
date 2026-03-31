@@ -17,8 +17,8 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
     
     // 1. Snapshot all Image URIs attached to this Collection BEFORE wiping the database
     const legacyImagesToPurge = await prisma.image.findMany({
-      where: { record: { collectionId: id }, uri: { contains: "drive.google.com" } },
-      select: { uri: true }
+      where: { record: { collectionId: id } },
+      select: { uri: true, secondaryUri: true }
     });
 
     const valuesToPurge = await prisma.value.findMany({
@@ -28,6 +28,7 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
 
     const allUrisToPurge = [
        ...legacyImagesToPurge.map(i => i.uri),
+       ...legacyImagesToPurge.map(i => i.secondaryUri),
        ...valuesToPurge.map(v => v.value)
     ].filter(Boolean);
 

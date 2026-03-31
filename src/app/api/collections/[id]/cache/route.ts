@@ -6,12 +6,24 @@ import { prisma } from "@/lib/prisma";
 import fs from 'fs';
 import path from 'path';
 
-async function getMetrics(collectionId: string) {
-    const fileField = await prisma.fieldDefinition.findFirst({
-      where: { collectionId, isFile: true }
-    });
+async function getMetrics(collectionId: string, fieldId?: string | null) {
+    let fileFields;
 
-    if (!fileField) return { error: "FATAL: Postgres returned zero FieldDefinitions mapped physically to `isFile: true`. Did you execute 'Save Configuration'?" };
+    if (fieldId) {
+      const explicitField = await prisma.fieldDefinition.findUnique({
+         where: { id: fieldId }
+      });
+      if (!explicitField || (!explicitField.isFile && !explicitField.isSecondaryFile)) {
+         return { error: `FATAL: Postgres returned zero valid dual-file constraints matching explicitly passed Field ID: ${fieldId}` };
+      }
+      fileFields = [explicitField];
+    } else {
+      fileFields = await prisma.fieldDefinition.findMany({
+        where: { collectionId, OR: [{ isFile: true }, { isSecondaryFile: true }] }
+      });
+    }
+
+    if (fileFields.length === 0) return { error: "FATAL: Postgres returned zero FieldDefinitions mapped physically to `isFile: true` or `isSecondaryFile: true`. Did you execute 'Save Configuration'?" };
 
     const cacheDir = path.join(process.cwd(), '.next', 'cache', 'metadb-images');
     if (!fs.existsSync(cacheDir)) {
@@ -22,25 +34,37 @@ async function getMetrics(collectionId: string) {
       where: { collectionId },
       include: {
         image: true,
-        values: { where: { fieldId: fileField.id } }
+        values: { where: { fieldId: { in: fileFields.map(f => f.id) } } }
       }
     });
 
     const googleDriveIds: string[] = [];
 
     for (const record of records) {
-      let rawUrl = "";
-      if (record.values.length > 0 && record.values[0].value) {
-         rawUrl = record.values[0].value;
-      } else if (record.image?.uri) {
-         rawUrl = record.image.uri;
-      }
+      const rawUrls: string[] = [];
 
-      const isGoogleDrive = rawUrl.includes("drive.google.com") || rawUrl.includes("docs.google.com");
-      if (isGoogleDrive) {
-        const match = rawUrl.match(/\/d\/([a-zA-Z0-9-_]+)/) || rawUrl.match(/id=([a-zA-Z0-9-_]+)/);
-        if (match && match[1]) {
-          googleDriveIds.push(match[1]);
+      // Extract explicitly saved value mappings
+      if (record.values && record.values.length > 0) {
+        record.values.forEach(v => {
+          if (v.value) rawUrls.push(v.value);
+        });
+      } 
+      
+      // Fallback to Image table properties strictly mapping the dual columns
+      if (fileFields.some(f => f.isFile) && record.image?.uri) rawUrls.push(record.image.uri);
+      if (fileFields.some(f => f.isSecondaryFile) && record.image?.secondaryUri) rawUrls.push(record.image.secondaryUri);
+
+      // Analyze every explicitly mapped URL concurrently
+      for (const uri of rawUrls) {
+        const isGoogleDrive = uri.includes("drive.google.com") || uri.includes("docs.google.com");
+        if (isGoogleDrive) {
+          const match = uri.match(/\/d\/([a-zA-Z0-9-_]+)/) || uri.match(/id=([a-zA-Z0-9-_]+)/);
+          if (match && match[1]) {
+             // Deduplicate IDs purely defensively!
+             if (!googleDriveIds.includes(match[1])) {
+                googleDriveIds.push(match[1]);
+             }
+          }
         }
       }
     }
@@ -72,7 +96,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const session = await getServerSession(authOptions);
     if (!session) return new NextResponse("Unauthorized", { status: 401 });
     
-    const metrics = await getMetrics(resolvedParams.id);
+    const url = new URL(req.url);
+    const fieldId = url.searchParams.get('fieldId');
+    
+    const metrics = await getMetrics(resolvedParams.id, fieldId);
     if (metrics.error) return NextResponse.json({ total: 0, cached: 0, debug: metrics.error });
     
     return NextResponse.json({ total: metrics.totalFiles, cached: metrics.currentlyCached });
@@ -91,7 +118,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const accessToken = (session as any).accessToken;
     if (!accessToken) return new NextResponse("No Google access token available in session", { status: 401 });
 
-    const metrics = await getMetrics(resolvedParams.id);
+    const url = new URL(req.url);
+    const fieldId = url.searchParams.get('fieldId');
+
+    const metrics = await getMetrics(resolvedParams.id, fieldId);
     if (metrics.error) return NextResponse.json({ total: 0, cached: 0, debug: metrics.error });
 
     const { totalFiles, missingIds, cacheDir, currentlyCached } = metrics as any;

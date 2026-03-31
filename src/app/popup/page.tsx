@@ -9,12 +9,14 @@ function PopupViewerContent() {
   
   const [isClient, setIsClient] = useState(false);
   const [activeImageUri, setActiveImageUri] = useState<string>("No Image Loaded");
+  const [activeSecondaryUri, setActiveSecondaryUri] = useState<string | null>(null);
   const [activeTitle, setActiveTitle] = useState<string>("Loading Context...");
   const [pulseAnimation, setPulseAnimation] = useState(false);
 
   useEffect(() => {
     setIsClient(true);
     setActiveImageUri(searchParams.get("image") || "No Image Loaded");
+    setActiveSecondaryUri(searchParams.get("secondaryImage") || null);
     setActiveTitle(searchParams.get("title") || "Loading Context...");
     
     // 1. Configure the BroadcastChannel to listen for navigation events directly from the Master Window!
@@ -24,6 +26,7 @@ function PopupViewerContent() {
     channel.onmessage = (event) => {
       if (event.data && event.data.type === 'SYNC_IMAGE') {
         setActiveImageUri(event.data.uri);
+        setActiveSecondaryUri(event.data.secondaryUri || null);
         setActiveTitle(event.data.title || "Untitled Component");
         
         setPulseAnimation(true);
@@ -44,7 +47,7 @@ function PopupViewerContent() {
       
       <div className="flex-1 w-full relative overflow-hidden bg-black">
          {isClient && activeImageUri && activeImageUri !== "No Image Loaded" ? (
-            <ImageViewer key={activeImageUri} imageUri={activeImageUri} imageTitle={activeTitle} isPopupMode={true} />
+            <ImageViewer key={activeImageUri} imageUri={activeImageUri} secondaryImageUri={activeSecondaryUri || undefined} imageTitle={activeTitle} isPopupMode={true} />
          ) : (
             <div className="absolute inset-0 flex items-center justify-center">
                <span className="text-zinc-600 font-mono tracking-widest text-sm uppercase">Awaiting Image Payload...</span>

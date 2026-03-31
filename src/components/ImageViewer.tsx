@@ -1,84 +1,107 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
-export function ImageViewer({ imageUri, imageTitle = "Attached Context", isPopupMode = false }: { imageUri: string, imageTitle?: string, isPopupMode?: boolean }) {
+export function ImageViewer({ imageUri, secondaryImageUri, imageTitle = "Attached Context", isPopupMode = false }: { imageUri: string, secondaryImageUri?: string, imageTitle?: string, isPopupMode?: boolean }) {
   const viewerRef = useRef<HTMLDivElement>(null);
   const osdRef = useRef<any>(null);
+  const [showSecondary, setShowSecondary] = useState(false);
+
+  const activeRenderUri = showSecondary && secondaryImageUri ? secondaryImageUri : imageUri;
 
   useEffect(() => {
-    if (!viewerRef.current || !imageUri) return;
+    if (!viewerRef.current || !activeRenderUri) return;
 
-    let viewer: any = null;
-    let observer: ResizeObserver | null = null;
-    let isMounted = true;
+    if (!osdRef.current) {
+      let isMounted = true;
+      (async () => {
+        // Dynamically load OpenSeadragon precisely on the client to entirely bypass Next.js SSR crashes
+        const OpenSeadragon = (await import("openseadragon")).default;
+        
+        // CRITICAL: If React unmounted this component while we were asynchronously awaiting the binary, abort instantly!
+        if (!isMounted) return;
 
-    (async () => {
-      // Dynamically load OpenSeadragon precisely on the client to entirely bypass Next.js SSR crashes
-      const OpenSeadragon = (await import("openseadragon")).default;
-      
-      // CRITICAL: If React unmounted this component while we were asynchronously awaiting the binary, abort instantly!
-      // This prevents the global browser environment from being locked by invisible, detached zombie viewer canvases!
-      if (!isMounted) return;
+        const viewer = OpenSeadragon({
+          element: viewerRef.current!,
+          prefixUrl: "https://openseadragon.github.io/openseadragon/images/", 
+          tileSources: {
+            type: 'image',
+            // Automatically route Google Drive URLs through our secure Next.js Server Proxy to bypass CORS!
+            url: activeRenderUri.includes("drive.google.com") || activeRenderUri.includes("docs.google.com")
+              ? `/api/images/proxy?url=${encodeURIComponent(activeRenderUri)}&t=${Date.now()}`
+              : activeRenderUri,
+          },
+          showNavigationControl: false,
+          animationTime: 0.5,
+          blendTime: 0.1,
+          constrainDuringPan: true,
+          maxZoomPixelRatio: 3,
+          minZoomImageRatio: 0.8,
+          visibilityRatio: 1,
+        });
+        
+        osdRef.current = viewer;
 
-      viewer = OpenSeadragon({
-        element: viewerRef.current!,
-        prefixUrl: "https://openseadragon.github.io/openseadragon/images/", 
-        tileSources: {
-          type: 'image',
-          // Automatically route Google Drive URLs through our secure Next.js Server Proxy to bypass CORS!
-          url: imageUri.includes("drive.google.com") || imageUri.includes("docs.google.com")
-            ? `/api/images/proxy?url=${encodeURIComponent(imageUri)}`
-            : imageUri,
-        },
-        showNavigationControl: false,
-        animationTime: 0.5,
-        blendTime: 0.1,
-        constrainDuringPan: true,
-        maxZoomPixelRatio: 3,
-        minZoomImageRatio: 0.8,
-        visibilityRatio: 1,
-      });
-      
-      osdRef.current = viewer;
+        viewer.addHandler("open", () => {
+          setTimeout(() => {
+            if (viewer && viewer.viewport) {
+              viewer.viewport.goHome(true);
+              viewer.forceRedraw();
+            }
+          }, 150);
+        });
 
-      viewer.addHandler("open", () => {
-        setTimeout(() => {
-          if (viewer && viewer.viewport) {
-            viewer.viewport.goHome(true);
-            viewer.forceRedraw();
+        let lastWidth = viewerRef.current!.clientWidth;
+        let lastHeight = viewerRef.current!.clientHeight;
+
+        const observer = new ResizeObserver(() => {
+          if (!viewerRef.current) return;
+          
+          const newWidth = viewerRef.current.clientWidth;
+          const newHeight = viewerRef.current.clientHeight;
+          
+          // Strict boundary checking: only reset the viewport Home state if the physical window/resizer dragging mutated the canvas dimension mathematically!
+          if (Math.abs(newWidth - lastWidth) > 5 || Math.abs(newHeight - lastHeight) > 5) {
+             lastWidth = newWidth;
+             lastHeight = newHeight;
+             
+             if (viewer && viewer.viewport) {
+               viewer.viewport.goHome(true);
+             }
           }
-        }, 150);
-      });
-
-      let lastWidth = viewerRef.current!.clientWidth;
-      let lastHeight = viewerRef.current!.clientHeight;
-
-      observer = new ResizeObserver(() => {
-        if (!viewerRef.current) return;
+        });
+        observer.observe(viewerRef.current!);
         
-        const newWidth = viewerRef.current.clientWidth;
-        const newHeight = viewerRef.current.clientHeight;
-        
-        // Strict boundary checking: only reset the viewport Home state if the physical window/resizer dragging mutated the canvas dimension mathematically!
-        if (Math.abs(newWidth - lastWidth) > 5 || Math.abs(newHeight - lastHeight) > 5) {
-           lastWidth = newWidth;
-           lastHeight = newHeight;
-           
-           if (viewer && viewer.viewport) {
-             viewer.viewport.goHome(true);
-           }
-        }
-      });
-      observer.observe(viewerRef.current!);
-    })();
+        // Cache observer entirely onto the viewer object avoiding global variables during hot-swaps!
+        (viewer as any)._customObserver = observer;
+      })();
 
+      return () => {
+        isMounted = false;
+      };
+    } else {
+      // Hot-Swap Image Logic: If the viewer natively exists, safely push the new image via URL directly into the engine!
+      const hotSwapUrl = activeRenderUri.includes("drive.google.com") || activeRenderUri.includes("docs.google.com")
+         ? `/api/images/proxy?url=${encodeURIComponent(activeRenderUri)}&t=${Date.now()}`
+         : activeRenderUri;
+         
+      osdRef.current.open({
+         type: 'image',
+         url: hotSwapUrl
+      });
+    }
+  }, [activeRenderUri]);
+
+  // Execute terminal DOM obliteration exactly once when closing the overarching tool
+  useEffect(() => {
     return () => {
-      isMounted = false;
-      if (observer) observer.disconnect();
-      if (viewer) viewer.destroy();
+      if (osdRef.current) {
+        if (osdRef.current._customObserver) osdRef.current._customObserver.disconnect();
+        osdRef.current.destroy();
+        osdRef.current = null;
+      }
     };
-  }, [imageUri]);
+  }, []);
 
   const handleZoomIn = () => {
     if (osdRef.current && osdRef.current.viewport) {
@@ -93,14 +116,6 @@ export function ImageViewer({ imageUri, imageTitle = "Attached Context", isPopup
       osdRef.current.viewport.applyConstraints();
     }
   };
-
-  const handleRotateLeft = () => {
-    if (osdRef.current && osdRef.current.viewport) {
-      const currentRotation = osdRef.current.viewport.getRotation();
-      osdRef.current.viewport.setRotation(currentRotation - 90);
-    }
-  };
-
   const handleRotateRight = () => {
     if (osdRef.current && osdRef.current.viewport) {
       const currentRotation = osdRef.current.viewport.getRotation();
@@ -115,8 +130,11 @@ export function ImageViewer({ imageUri, imageTitle = "Attached Context", isPopup
       const popupWidth = 800;
       const popupHeight = Math.min(900, window.innerHeight);
       const leftConstraint = window.screenX + (window.outerWidth / 2) - (popupWidth / 2);
+      
+      const secParam = secondaryImageUri ? `&secondaryImage=${encodeURIComponent(secondaryImageUri)}` : "";
+      
       window.open(
-         `/popup?image=${activeImageUri_encoded}&title=${encodeURIComponent(imageTitle)}`, 
+         `/popup?image=${activeImageUri_encoded}&title=${encodeURIComponent(imageTitle)}${secParam}`, 
          'MetaDB_DeepZoom_Viewer', 
          `popup=yes,width=${popupWidth},height=${popupHeight},left=${leftConstraint}`
       );
@@ -134,15 +152,19 @@ export function ImageViewer({ imageUri, imageTitle = "Attached Context", isPopup
       
       {/* Unified Horizontal Action Overlay */}
       <div className="absolute bottom-2.5 right-2.5 flex flex-row space-x-2.5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20 pointer-events-auto">
-        <button 
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRotateLeft(); }}
-          className="bg-slate-900 border border-zinc-700/50 hover:bg-black text-zinc-300 hover:text-white p-2.5 rounded-full shadow-lg transition-all focus:outline-none flex items-center justify-center transform hover:scale-105"
-          title="Rotate Left"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-          </svg>
-        </button>
+        {secondaryImageUri && (
+          <>
+            <button 
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowSecondary(!showSecondary); }}
+              className="bg-slate-900 border border-zinc-700/50 hover:bg-black text-zinc-300 hover:text-white p-2.5 rounded-full shadow-lg transition-all focus:outline-none flex items-center justify-center transform hover:scale-105"
+              title="Toggle File (Front/Back)"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                 <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+              </svg>
+            </button>
+          </>
+        )}
         <button 
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRotateRight(); }}
           className="bg-slate-900 border border-zinc-700/50 hover:bg-black text-zinc-300 hover:text-white p-2.5 rounded-full shadow-lg transition-all focus:outline-none flex items-center justify-center transform hover:scale-105"
@@ -152,7 +174,6 @@ export function ImageViewer({ imageUri, imageTitle = "Attached Context", isPopup
             <path strokeLinecap="round" strokeLinejoin="round" d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6" />
           </svg>
         </button>
-        <div className="w-[1px] h-[24px] bg-zinc-700/50 my-auto mx-1 shadow-sm"></div>
         <button 
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleZoomOut(); }}
           className="bg-slate-900 border border-zinc-700/50 hover:bg-black text-zinc-300 hover:text-white p-2.5 rounded-full shadow-lg transition-all focus:outline-none flex items-center justify-center transform hover:scale-105"

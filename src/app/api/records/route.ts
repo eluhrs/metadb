@@ -21,7 +21,9 @@ export async function POST(req: Request) {
       where: { id: { in: Object.keys(values) } }
     });
     
+    // Explicitly separate tracking indices for File 1 and File 2 arrays safely
     const fileFieldIds = new Set(fieldDefinitions.filter(f => f.isFile).map(f => f.id));
+    const secondaryFileIds = new Set(fieldDefinitions.filter(f => f.isSecondaryFile).map(f => f.id));
 
     // Upsert values individually since unique composite keys were not strictly forced in schema
     const valuePromises = Object.entries(values).map(async ([fieldId, value]) => {
@@ -29,13 +31,21 @@ export async function POST(req: Request) {
       
       const valStr = value as string;
 
-      // Ensure that if this is the flagged File field, SeaDragon recognizes the visual change immediately!
-      if (fileFieldIds.has(fieldId) && valStr.trim() !== "") {
+      // Ensure that if this is the flagged File 1 or File 2 column, SeaDragon recognizes the visual change immediately!
+      if ((fileFieldIds.has(fieldId) || secondaryFileIds.has(fieldId)) && valStr.trim() !== "") {
          const existingImg = await prisma.image.findUnique({ where: { recordId } });
+         
+         const payloadKey = fileFieldIds.has(fieldId) ? "uri" : "secondaryUri";
+         
          if (existingImg) {
-            await prisma.image.update({ where: { id: existingImg.id }, data: { uri: valStr } });
+            await prisma.image.update({ 
+               where: { id: existingImg.id }, 
+               data: { [payloadKey]: valStr } 
+            });
          } else {
-            await prisma.image.create({ data: { recordId, uri: valStr } });
+            await prisma.image.create({ 
+               data: { recordId, [payloadKey]: valStr } 
+            });
          }
       }
       

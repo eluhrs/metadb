@@ -58,10 +58,20 @@ export default async function CatalogingPage(props: { params: Promise<{ id: stri
   const fileField = collection.fieldDefinitions.find((f: any) => f.isFile);
   let activeImageUri = currentRecord.image?.uri;
 
+  const secondaryFileField = collection.fieldDefinitions.find((f: any) => f.isSecondaryFile);
+  let secondaryImageUri = currentRecord.image?.secondaryUri || null;
+
   if (fileField) {
     const val = currentRecord.values.find((v: any) => v.fieldId === fileField.id);
     if (val && val.value) {
        activeImageUri = val.value;
+    }
+  }
+
+  if (secondaryFileField) {
+    const val2 = currentRecord.values.find((v: any) => v.fieldId === secondaryFileField.id);
+    if (val2 && val2.value) {
+       secondaryImageUri = val2.value;
     }
   }
 
@@ -72,6 +82,7 @@ export default async function CatalogingPage(props: { params: Promise<{ id: stri
        recordsLength={records.length}
        safeIndex={safeIndex}
        activeImageUri={activeImageUri || null}
+       secondaryImageUri={secondaryImageUri || null}
        currentRecord={currentRecord}
     />
   );
