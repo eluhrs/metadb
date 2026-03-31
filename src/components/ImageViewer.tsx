@@ -7,6 +7,8 @@ export function ImageViewer({ imageUri, secondaryImageUri, imageTitle = "Attache
   const osdRef = useRef<any>(null);
   const [showSecondary, setShowSecondary] = useState(false);
 
+  // Decouple Chrome's aggressive failed-TTFB cache purely on newly clicked database records, preserving speed on flipping the same record via static internal mount caching
+  const [sessionBust] = useState(() => Math.random().toString(36).substring(7));
   const activeRenderUri = showSecondary && secondaryImageUri ? secondaryImageUri : imageUri;
 
   // Cross-Record Navigation Hook
@@ -15,26 +17,30 @@ export function ImageViewer({ imageUri, secondaryImageUri, imageTitle = "Attache
   }, [imageUri]);
 
   // Primary Viewer Boot / Hot-Swap Mechanism
+  const [viewerError, setViewerError] = useState(false);
+
   useEffect(() => {
+    let isMounted = true;
+    setViewerError(false); // Reset error state on new image mount
+
     if (!viewerRef.current || !activeRenderUri) return;
 
     const hotSwapUrl = activeRenderUri.includes("drive.google.com") || activeRenderUri.includes("docs.google.com")
-       ? `/api/images/proxy?url=${encodeURIComponent(activeRenderUri)}`
+       ? `/api/images/proxy?url=${encodeURIComponent(activeRenderUri)}&_sb=${sessionBust}`
        : activeRenderUri;
 
     if (!osdRef.current) {
-      let isMounted = true;
       (async () => {
         const OpenSeadragon = (await import("openseadragon")).default;
         if (!isMounted) return;
 
         const viewer = OpenSeadragon({
           element: viewerRef.current!,
-          prefixUrl: "https://openseadragon.github.io/openseadragon/images/", 
+          prefixUrl: "//openseadragon.github.io/openseadragon/images/", 
           tileSources: { type: 'image', url: hotSwapUrl },
           showNavigationControl: false,
-          animationTime: 0,
-          blendTime: 0,
+          animationTime: 0.5,
+          blendTime: 0.1,
           constrainDuringPan: true,
           maxZoomPixelRatio: 3,
           minZoomImageRatio: 0.8,
@@ -52,6 +58,12 @@ export function ImageViewer({ imageUri, secondaryImageUri, imageTitle = "Attache
           }, 50);
         });
 
+        viewer.addHandler("open-failed", (e: any) => {
+          if (!isMounted) return;
+          console.log("OSD Native Fetch Engine Failed - Intercepted Black Screen!", e);
+          setViewerError(true);
+        });
+
         let lastWidth = viewerRef.current!.clientWidth;
         let lastHeight = viewerRef.current!.clientHeight;
 
@@ -67,11 +79,12 @@ export function ImageViewer({ imageUri, secondaryImageUri, imageTitle = "Attache
         observer.observe(viewerRef.current!);
         (viewer as any)._customObserver = observer;
       })();
-      return () => { isMounted = false; };
     } else {
       osdRef.current.open({ type: 'image', url: hotSwapUrl });
     }
-  }, [activeRenderUri]);
+
+    return () => { isMounted = false; };
+  }, [activeRenderUri, sessionBust]);
 
   useEffect(() => {
     return () => {
@@ -136,8 +149,11 @@ export function ImageViewer({ imageUri, secondaryImageUri, imageTitle = "Attache
         {secondaryImageUri && (
           <>
             <button 
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowSecondary(!showSecondary); }}
-              className="bg-slate-900 border border-zinc-700/50 hover:bg-black text-zinc-300 hover:text-white p-2.5 rounded-full shadow-lg transition-all focus:outline-none flex items-center justify-center transform hover:scale-105"
+              onMouseDown={(e) => { e.currentTarget.style.transform = "scale(0.90)"; e.currentTarget.style.backgroundColor = "#94a3b8"; }}
+              onMouseUp={(e) => { e.currentTarget.style.transform = ""; e.currentTarget.style.backgroundColor = ""; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = ""; e.currentTarget.style.backgroundColor = ""; }}
+              onClick={(e) => { e.stopPropagation(); setShowSecondary(!showSecondary); }}
+              className="bg-slate-900 border border-zinc-700/50 hover:bg-black text-zinc-300 hover:text-white p-2.5 rounded-full shadow-lg transition-transform duration-75 focus:outline-none flex items-center justify-center transform hover:scale-105"
               title="Toggle File (Front/Back)"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -147,8 +163,11 @@ export function ImageViewer({ imageUri, secondaryImageUri, imageTitle = "Attache
           </>
         )}
         <button 
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRotateRight(); }}
-          className="bg-slate-900 border border-zinc-700/50 hover:bg-black text-zinc-300 hover:text-white p-2.5 rounded-full shadow-lg transition-all focus:outline-none flex items-center justify-center transform hover:scale-105"
+          onMouseDown={(e) => { e.currentTarget.style.transform = "scale(0.90)"; e.currentTarget.style.backgroundColor = "#94a3b8"; }}
+          onMouseUp={(e) => { e.currentTarget.style.transform = ""; e.currentTarget.style.backgroundColor = ""; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = ""; e.currentTarget.style.backgroundColor = ""; }}
+          onClick={(e) => { e.stopPropagation(); handleRotateRight(); }}
+          className="bg-slate-900 border border-zinc-700/50 hover:bg-black text-zinc-300 hover:text-white p-2.5 rounded-full shadow-lg transition-transform duration-75 focus:outline-none flex items-center justify-center transform hover:scale-105"
           title="Rotate Right"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -156,8 +175,11 @@ export function ImageViewer({ imageUri, secondaryImageUri, imageTitle = "Attache
           </svg>
         </button>
         <button 
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleZoomOut(); }}
-          className="bg-slate-900 border border-zinc-700/50 hover:bg-black text-zinc-300 hover:text-white p-2.5 rounded-full shadow-lg transition-all focus:outline-none flex items-center justify-center transform hover:scale-105"
+          onMouseDown={(e) => { e.currentTarget.style.transform = "scale(0.90)"; e.currentTarget.style.backgroundColor = "#94a3b8"; }}
+          onMouseUp={(e) => { e.currentTarget.style.transform = ""; e.currentTarget.style.backgroundColor = ""; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = ""; e.currentTarget.style.backgroundColor = ""; }}
+          onClick={(e) => { e.stopPropagation(); handleZoomOut(); }}
+          className="bg-slate-900 border border-zinc-700/50 hover:bg-black text-zinc-300 hover:text-white p-2.5 rounded-full shadow-lg transition-transform duration-75 focus:outline-none flex items-center justify-center transform hover:scale-105"
           title="Zoom Out"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-[20px] w-[20px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -165,8 +187,11 @@ export function ImageViewer({ imageUri, secondaryImageUri, imageTitle = "Attache
           </svg>
         </button>
         <button 
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleZoomIn(); }}
-          className="bg-slate-900 border border-zinc-700/50 hover:bg-black text-zinc-300 hover:text-white p-2.5 rounded-full shadow-lg transition-all focus:outline-none flex items-center justify-center transform hover:scale-105"
+          onMouseDown={(e) => { e.currentTarget.style.transform = "scale(0.90)"; e.currentTarget.style.backgroundColor = "#94a3b8"; }}
+          onMouseUp={(e) => { e.currentTarget.style.transform = ""; e.currentTarget.style.backgroundColor = ""; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = ""; e.currentTarget.style.backgroundColor = ""; }}
+          onClick={(e) => { e.stopPropagation(); handleZoomIn(); }}
+          className="bg-slate-900 border border-zinc-700/50 hover:bg-black text-zinc-300 hover:text-white p-2.5 rounded-full shadow-lg transition-transform duration-75 focus:outline-none flex items-center justify-center transform hover:scale-105"
           title="Zoom In"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-[20px] w-[20px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -174,8 +199,11 @@ export function ImageViewer({ imageUri, secondaryImageUri, imageTitle = "Attache
           </svg>
         </button>
         <button 
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); handlePopupAction(); }}
-          className="bg-slate-900 border border-zinc-700/50 hover:bg-black text-zinc-300 hover:text-white p-2.5 rounded-full shadow-lg transition-all focus:outline-none flex items-center justify-center transform hover:scale-105"
+          onMouseDown={(e) => { e.currentTarget.style.transform = "scale(0.90)"; e.currentTarget.style.backgroundColor = "#94a3b8"; }}
+          onMouseUp={(e) => { e.currentTarget.style.transform = ""; e.currentTarget.style.backgroundColor = ""; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = ""; e.currentTarget.style.backgroundColor = ""; }}
+          onClick={(e) => { e.stopPropagation(); handlePopupAction(); }}
+          className="bg-slate-900 border border-zinc-700/50 hover:bg-black text-zinc-300 hover:text-white p-2.5 rounded-full shadow-lg transition-transform duration-75 focus:outline-none flex items-center justify-center transform hover:scale-105"
           title={isPopupMode ? "Close Secondary Window" : "Launch Detached Secondary Monitor"}
         >
           {isPopupMode ? (

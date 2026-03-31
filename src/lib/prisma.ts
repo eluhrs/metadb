@@ -9,9 +9,9 @@ const globalForPrisma = global as unknown as { prisma: PrismaClient };
 export const prisma =
   globalForPrisma.prisma ||
   new PrismaClient({
-    // @ts-ignore - Type definitions for pg Pool mismatch Prisma adapter internal types
+    // @ts-ignore
     adapter: new PrismaPg(new Pool({ connectionString })),
-    log: ["query"],
+    log: ["query", "error", "warn"],
   });
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;

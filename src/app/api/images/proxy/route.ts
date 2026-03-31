@@ -35,6 +35,7 @@ export async function GET(req: Request) {
         const headers = new Headers();
         headers.set("Content-Type", "image/jpeg"); // Drive images are safely assumed as JPEGs for OSD
         headers.set("Cache-Control", "public, max-age=31536000, immutable");
+        headers.set("Content-Length", fileBuffer.length.toString());
         return new NextResponse(fileBuffer, { headers });
       }
 
@@ -53,19 +54,21 @@ export async function GET(req: Request) {
         alt: 'media'
       }, { responseType: 'stream' });
 
-      // Convert Google's Node stream into a raw buffer array in memory
-      const chunks = [];
+      // Build safe synchronous buffer to avoid Next.js ReadableStream proxy compression length mismatch bugs
+      const chunks: Buffer[] = [];
       for await (const chunk of response.data as any) {
         chunks.push(chunk);
       }
       const buffer = Buffer.concat(chunks);
 
-      // Save binary buffer asynchronously to local filesystem to instantly cache future requests
-      fs.promises.writeFile(cachedFilePath, buffer).catch(console.error);
+      // Instantly cache to NVMe in background thread
+      fs.promises.writeFile(cachedFilePath, buffer).catch(e => console.error("Cache Write Error", e));
 
       const headers = new Headers();
       headers.set("Content-Type", response.headers["content-type"] || "image/jpeg");
       headers.set("Cache-Control", "public, max-age=31536000, immutable");
+      // Explicit Content-Length strictly required so OpenSeadragon WebGL can properly pre-allocate matrix geometries natively!
+      headers.set("Content-Length", buffer.length.toString());
 
       return new NextResponse(buffer, { headers });
     }
