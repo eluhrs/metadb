@@ -12,8 +12,8 @@ async function getMetrics(collectionId: string, fieldId?: string | null) {
       const explicitField = await prisma.fieldDefinition.findUnique({
          where: { id: fieldId }
       });
-      if (!explicitField || (!explicitField.isFile && !explicitField.isSecondaryFile)) {
-         return { error: `FATAL: Postgres returned zero valid dual-file constraints matching explicitly passed Field ID: ${fieldId}` };
+      if (!explicitField) {
+         return { error: `FATAL: Postgres explicitly could not find Field ID: ${fieldId} structurally in the mapping matrix.` };
       }
       fileFields = [explicitField];
     } else {
