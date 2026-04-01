@@ -43,30 +43,18 @@ type FieldDefinition = {
   columnIndex?: number | null;
 };
 
-// Sortable Row Component
-function SortableFieldRow({ f, updateField, deleteField, handleComplexToggle, isOverlay = false, hasFileFieldSelected = false, hasFile2Selected = false, cacheState, onPreCache }: any) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: f.id, data: { fieldset: f.isAdministrative ? 'admin' : 'desc' } });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.3 : 1,
-  };
-
+function FieldRowMarkup({
+  f, updateField, deleteField, handleComplexToggle, isOverlay = false, 
+  hasFileFieldSelected = false, hasFile2Selected = false, cacheState, onPreCache,
+  attributes, listeners, setNodeRef, style, isDragging
+}: any) {
   const isAi = f.aiPrompt !== null;
 
   return (
     <tr
       ref={setNodeRef}
       style={style}
-      className={`group border-b border-gray-200 text-sm ${isOverlay ? 'bg-white' : 'hover:bg-gray-50 bg-white'}`}
+      className={`group border-b border-gray-200 text-sm ${isOverlay ? 'bg-white shadow-2xl opacity-100 ring-2 ring-blue-500 scale-102 z-50' : 'hover:bg-gray-50 bg-white'}`}
     >
       <td className="px-2 py-3 text-gray-400 text-center">
         <button
@@ -194,7 +182,7 @@ function SortableFieldRow({ f, updateField, deleteField, handleComplexToggle, is
 
       <td className="px-3 py-3 text-center border-r border-gray-200">
         <button
-          onClick={() => handleComplexToggle(f, 'write')}
+          onClick={(e) => { e.preventDefault(); handleComplexToggle(f, 'write'); }}
           disabled={f.isFile || f.isSecondaryFile}
           className={`px-3 py-1 text-[11px] font-bold rounded transition shadow-sm ${f.isFile || f.isSecondaryFile ? 'bg-gray-100 text-gray-400 opacity-60 cursor-not-allowed border border-gray-200' : 'bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700 border border-red-200'}`}
         >
@@ -221,6 +209,26 @@ function SortableFieldRow({ f, updateField, deleteField, handleComplexToggle, is
       </td>
     </tr>
   );
+}
+
+// Strictly wraps the visual row in a unique draggable context map hook natively.
+function SortableFieldRow(props: any) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: props.f.id, data: { fieldset: props.f.isAdministrative ? 'admin' : 'desc' } });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.3 : 1,
+  };
+
+  return <FieldRowMarkup {...props} attributes={attributes} listeners={listeners} setNodeRef={setNodeRef} style={style} isDragging={isDragging} />;
 }
 
 function ToggleButton({ active, disabled = false, onClick, label }: { active: boolean, disabled?: boolean, onClick: () => void, label: string }) {
@@ -646,7 +654,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
             {activeDragField ? (
               <table className="w-full bg-white shadow-xl ring-2 ring-blue-500 rounded-lg overflow-hidden" style={{ borderCollapse: 'initial', borderSpacing: 0 }}>
                 <tbody>
-                  <SortableFieldRow f={activeDragField} updateField={() => { }} handleComplexToggle={() => { }} isOverlay={true} cacheState={cacheStates[activeDragField.id]} onPreCache={() => { }} />
+                  <FieldRowMarkup f={activeDragField} updateField={() => { }} deleteField={() => {}} handleComplexToggle={() => { }} isOverlay={true} cacheState={cacheStates[activeDragField.id]} onPreCache={() => { }} />
                 </tbody>
               </table>
             ) : null}
