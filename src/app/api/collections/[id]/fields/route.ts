@@ -97,7 +97,7 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
                        auth.setCredentials({ access_token: accessToken });
                        const drive = google.drive({ version: 'v3', auth });
 
-                       const response = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'stream' });
+                       const response = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'arraybuffer' });
 
                        const chunks = [];
                        for await (const chunk of response.data as any) {

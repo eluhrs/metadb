@@ -42,14 +42,10 @@ export async function GET(req: Request, props: { params: Promise<{ slug: string 
     const response = await drive.files.get({
       fileId,
       alt: 'media'
-    }, { responseType: 'stream' });
+    }, { responseType: 'arraybuffer' });
 
     // Convert Google's Node stream into a raw buffer array in memory
-    const chunks: Buffer[] = [];
-    for await (const chunk of response.data as any) {
-      chunks.push(chunk);
-    }
-    const buffer = Buffer.concat(chunks);
+    const buffer = Buffer.from(response.data as ArrayBuffer);
 
     // Save binary buffer asynchronously to local filesystem to instantly cache future requests
     fs.promises.writeFile(cachedFilePath, buffer).catch(console.error);

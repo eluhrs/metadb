@@ -52,14 +52,10 @@ export async function GET(req: Request) {
       const response = await drive.files.get({
         fileId,
         alt: 'media'
-      }, { responseType: 'stream' });
+      }, { responseType: 'arraybuffer' });
 
       // Build safe synchronous buffer to avoid Next.js ReadableStream proxy compression length mismatch bugs
-      const chunks: Buffer[] = [];
-      for await (const chunk of response.data as any) {
-        chunks.push(chunk);
-      }
-      const buffer = Buffer.concat(chunks);
+      const buffer = Buffer.from(response.data as ArrayBuffer);
 
       // Instantly cache to NVMe in background thread
       fs.promises.writeFile(cachedFilePath, buffer).catch(e => console.error("Cache Write Error", e));
