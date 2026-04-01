@@ -13,7 +13,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ path: st
       return new NextResponse("Forbidden Blocked File Traversal", { status: 403 });
     }
 
-    const filePath = path.join(/*turbopackIgnore: true*/ process.cwd(), '.next', 'cache', 'tiles', ...pathArray);
+    const filePath = `${process.cwd()}/.next/cache/tiles/${pathArray.join('/')}`;
 
     if (!fs.existsSync(filePath)) {
       return new NextResponse("Tile Not Found", { status: 404 });

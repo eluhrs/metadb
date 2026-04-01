@@ -14,7 +14,7 @@ export async function GET(req: Request, props: { params: Promise<{ slug: string 
     if (!fileId) return new NextResponse("Missing file ID", { status: 400 });
 
     // Highly Aggressive Caching Layer
-    const cacheDir = path.join(/*turbopackIgnore: true*/ process.cwd(), '.next', 'cache', 'metadb-images');
+    const cacheDir = `${process.cwd()}/.next/cache/metadb-images`;
     if (!fs.existsSync(cacheDir)) {
       fs.mkdirSync(cacheDir, { recursive: true });
     }

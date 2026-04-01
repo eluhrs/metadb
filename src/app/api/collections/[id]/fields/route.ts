@@ -84,7 +84,7 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
 
           if (fileId) {
              try {
-               const cacheDir = path.join(/*turbopackIgnore: true*/ process.cwd(), '.next', 'cache', 'metadb-images');
+               const cacheDir = `${process.cwd()}/.next/cache/metadb-images`;
                if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
                const cachedFilePath = path.join(cacheDir, `${fileId}.blob`);
 
