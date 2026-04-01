@@ -83,34 +83,34 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
           const fileId = match ? match[1] : null;
 
           if (fileId) {
-             const cacheDir = path.join(process.cwd(), '.next', 'cache', 'metadb-images');
-             if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-             const cachedFilePath = path.join(cacheDir, `${fileId}.blob`);
+             try {
+               const cacheDir = path.join(process.cwd(), '.next', 'cache', 'metadb-images');
+               if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+               const cachedFilePath = path.join(cacheDir, `${fileId}.blob`);
 
-             // Check if it's currently missing from global local storage
-             if (!fs.existsSync(cachedFilePath)) {
-                // Securely use the live PUT action's session to proactively retrieve the raw file!
-                const accessToken = (session as any).accessToken;
-                if (accessToken) {
-                   try {
-                     const auth = new google.auth.OAuth2();
-                     auth.setCredentials({ access_token: accessToken });
-                     const drive = google.drive({ version: 'v3', auth });
+               // Check if it's currently missing from global local storage
+               if (!fs.existsSync(cachedFilePath)) {
+                  // Securely use the live PUT action's session to proactively retrieve the raw file!
+                  const accessToken = (session as any).accessToken;
+                  if (accessToken) {
+                       const auth = new google.auth.OAuth2();
+                       auth.setCredentials({ access_token: accessToken });
+                       const drive = google.drive({ version: 'v3', auth });
 
-                     const response = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'stream' });
+                       const response = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'stream' });
 
-                     const chunks = [];
-                     for await (const chunk of response.data as any) {
-                        chunks.push(chunk);
-                     }
-                     
-                     // Lock the binary strictly onto disk so `<Image>` backend worker can immediately detect and compress it.
-                     const buffer = Buffer.concat(chunks);
-                     await fs.promises.writeFile(cachedFilePath, buffer);
-                   } catch(e) {
-                      console.error("Proactive thumbnail seeding failed invisibly (Google API rejected or timeout):", e);
-                   }
-                }
+                       const chunks = [];
+                       for await (const chunk of response.data as any) {
+                          chunks.push(chunk);
+                       }
+                       
+                       // Lock the binary strictly onto disk so `<Image>` backend worker can immediately detect and compress it.
+                       const buffer = Buffer.concat(chunks);
+                       await fs.promises.writeFile(cachedFilePath, buffer);
+                  }
+               }
+             } catch(e) {
+                console.error("Proactive thumbnail seeding failed invisibly (Google API rejected or timeout):", e);
              }
           }
        }
@@ -122,7 +122,12 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
-    console.error("Error updating fields:", error);
+    console.error("========================");
+    console.error("FATAL PUT ERROR:");
+    console.error(error);
+    if (error.code) console.error("Prisma Code:", error.code);
+    if (error.meta) console.error("Prisma Meta:", error.meta);
+    console.error("========================");
     return NextResponse.json({ error: "Failed to update field configurations" }, { status: 500 });
   }
 }

@@ -28,3 +28,9 @@ If debugging production securely properly manually magically brilliantly creativ
 1. Start the Dev database container: `npm run dev:db:start`
 2. Sync schema if needed: `npm run dev:db:push`
 3. Boot Next.js explicitly: `npm run dev`
+
+## UI Debugging & Agent Workflow
+**Mandatory GUI Interaction Testing:** When modifying complex UI state (specifically `dnd-kit` multi-container structures like `EditFieldMappings.tsx`), AI agents are prone to introducing "Maximum update depth" React loops because calculating drag-and-drop bounding box collisions across react lists (e.g. `closestCenter`) naturally oscillates if matrix dimensions aren't tightly controlled. 
+To prevent burning tokens in multiple debug sessions guessing physical DOM conditions:
+1. Ensure `closestCorners` or custom logic is safely applied if items are dragging across unequal tables.
+2. The AI must strictly use Playwright or a Headless Browser subagent pointing to `localhost:3000` to physically emulate hover and drop interactions before declaring code changes "fixed" or handing control back to the user. Do not "guess" React layout shifts computationally.

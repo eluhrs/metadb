@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
-  closestCorners,
+  closestCenter,
   KeyboardSensor,
   PointerSensor,
   useSensor,
@@ -295,8 +295,6 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
 
   const [cacheStates, setCacheStates] = useState<Record<string, { active: boolean, total: number, cached: number, completed?: boolean, error?: string }>>({});
 
-  const fieldIdsString = fields.map(f => f.id).join(',');
-
   useEffect(() => {
     if (hasFileFieldSelected || hasFile2Selected) {
       const fileFields = fields.filter(f => f.isFile || f.isSecondaryFile);
@@ -310,7 +308,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
           }).catch(console.error);
       });
     }
-  }, [collection.id, hasFileFieldSelected, hasFile2Selected, fieldIdsString]);
+  }, [collection.id, hasFileFieldSelected, hasFile2Selected]);
 
   const handlePreCache = async (fieldId: string) => {
     // 1. Defensively save the UI React configuration to Postgres first so they don't lose it if they walk away!
@@ -486,25 +484,14 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
 
       if (isCurrentlyAdmin !== shouldBeAdmin) {
         const mutableFields = [...prev];
-        const mutableActiveIdx = mutableFields.findIndex(f => f.id === active.id);
-        if (mutableActiveIdx === -1) return prev;
-        
-        const mutableItem = mutableFields[mutableActiveIdx];
-        mutableFields.splice(mutableActiveIdx, 1);
-        
-        const movedItem = { ...mutableItem, isAdministrative: shouldBeAdmin };
-        
-        if (shouldBeAdmin) {
-          mutableFields.push(movedItem);
-        } else {
-          const firstAdminIndex = mutableFields.findIndex(f => f.isAdministrative);
-          if (firstAdminIndex === -1) {
-            mutableFields.push(movedItem);
-          } else {
-            mutableFields.splice(firstAdminIndex, 0, movedItem);
-          }
+        const overItemIndex = mutableFields.findIndex(f => f.id === over.id);
+
+        mutableFields[activeIdx] = { ...item, isAdministrative: shouldBeAdmin };
+
+        if (overItemIndex >= 0 && activeIdx !== overItemIndex) {
+          return arrayMove(mutableFields, activeIdx, overItemIndex);
         }
-        
+
         return mutableFields;
       }
       return prev;
@@ -518,24 +505,14 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
 
     if (active.id !== over.id) {
       setFields(prev => {
-        const item = prev.find(f => f.id === active.id);
-        if (!item) return prev;
-        
-        const isCurrentAdmin = item.isAdministrative;
-        
-        let desc = prev.filter(f => !f.isAdministrative);
-        let admin = prev.filter(f => f.isAdministrative);
-        
-        let targetList = isCurrentAdmin ? admin : desc;
-        
-        const oldIndex = targetList.findIndex(f => f.id === active.id);
-        const newIndex = targetList.findIndex(f => f.id === over.id);
+        const oldIndex = prev.findIndex(f => f.id === active.id);
+        const newIndex = prev.findIndex(f => f.id === over.id);
 
+        // Only swap if we dropped over a valid row item
         if (oldIndex >= 0 && newIndex >= 0) {
-          targetList = arrayMove(targetList, oldIndex, newIndex);
+          return arrayMove(prev, oldIndex, newIndex);
         }
-        
-        return isCurrentAdmin ? [...desc, ...targetList] : [...targetList, ...admin];
+        return prev;
       });
     }
   };
@@ -601,7 +578,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
         <DndContext
           id="dnd-field-config"
           sensors={sensors}
-          collisionDetection={closestCorners}
+          collisionDetection={closestCenter}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
@@ -649,8 +626,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                   <tr>
                     <th className="px-2 py-3 w-8 text-center font-semibold text-gray-400">Move</th>
                     <th className="px-3 py-3 font-semibold text-gray-600 min-w-[280px]">Field Name</th>
-                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-l border-r border-gray-200" title="Administrative Fields Cannot Act As Files">File 1</th>
-                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Administrative Fields Cannot Act As Files">File 2</th>
+                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-l border-r border-gray-200" title="Administrative Fields Cannot Act As Files"></th>
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200">Long</th>
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200">Bulk</th>
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Lock Manual Input">Lock</th>
