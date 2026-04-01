@@ -7,9 +7,10 @@ import { useRouter } from "next/navigation";
 export function CollectionActions({ id, isAdmin = false }: { id: string; isAdmin?: boolean }) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  const handleDelete = async () => {
-    if (!window.confirm("Are you absolutely sure you want to delete this collection and ALL its cataloged metadata? This cannot be undone.")) return;
+  const executeDelete = async () => {
+    setConfirmingDelete(false);
     setDeleting(true);
     try {
       const res = await fetch(`/api/collections/${id}`, { method: "DELETE" });
@@ -47,15 +48,34 @@ export function CollectionActions({ id, isAdmin = false }: { id: string; isAdmin
       >
         Export Data
       </a>
-      {isAdmin && (
+      {isAdmin && !confirmingDelete && (
         <button 
-          onClick={handleDelete}
+          onClick={() => setConfirmingDelete(true)}
           disabled={deleting}
           className="w-full sm:w-auto text-center px-4 py-2 text-xs font-semibold bg-slate-700 text-white hover:bg-rose-300 hover:text-rose-900 rounded-lg transition-all shadow-sm disabled:opacity-50"
           title="Delete Collection"
         >
           {deleting ? "Deleting..." : "Delete Project"}
         </button>
+      )}
+
+      {isAdmin && confirmingDelete && (
+        <div className="flex w-full sm:w-auto items-center space-x-2">
+          <button 
+            onClick={executeDelete}
+            className="w-full sm:w-auto text-center px-4 py-2 text-xs font-bold bg-red-600 text-white hover:bg-red-700 shadow-md rounded-lg transition-all animate-pulse"
+            title="Confirm Deletion"
+          >
+            Confirm Delete
+          </button>
+          <button 
+            onClick={() => setConfirmingDelete(false)}
+            className="w-full sm:w-auto text-center px-4 py-2 text-xs font-semibold bg-gray-300 text-gray-800 hover:bg-gray-400 rounded-lg transition-all"
+            title="Cancel"
+          >
+            Cancel
+          </button>
+        </div>
       )}
     </div>
   );
