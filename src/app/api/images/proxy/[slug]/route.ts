@@ -29,9 +29,7 @@ export async function GET(req: Request, props: { params: Promise<{ slug: string 
       return new NextResponse(fileBuffer, { headers });
     }
 
-    // If not cached, authenticate to Google and download it
-    const session = await getServerSession(authOptions);
-    if (!session) return new NextResponse("Unauthorized", { status: 401 });
+    // If not cached, the Server Service Account natively proxies it on behalf of the public user!
 
     const { getDriveClient } = await import('@/lib/googleAuth');
     const drive = await getDriveClient();
