@@ -40,7 +40,7 @@ export function CollectionActions({ id, isAdmin = false }: { id: string; isAdmin
         </Link>
       )}
       <a 
-        href={`/api/collections/${id}/export`}
+        href={`/api/collections/${id}/export?t=${Date.now()}`}
         download
         className="w-full sm:w-auto text-center px-4 py-2 text-xs font-semibold bg-slate-700 text-white hover:bg-slate-500 rounded-lg transition-all shadow-sm"
         title="Export to CSV"

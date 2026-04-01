@@ -72,13 +72,18 @@ export async function GET(req: Request, props: { params: Promise<{ id: string }>
       csvContent += row.join(",") + "\n";
     }
 
-    const response = new NextResponse(csvContent);
-    response.headers.set("Content-Type", "text/csv; charset=utf-8");
-    response.headers.set("Content-Disposition", `attachment; filename="${collection.name.replace(/\s+/g, '_')}_export.csv"`);
+    const safeFilename = collection.name.replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+    const finalFilename = safeFilename.endsWith('.csv') ? safeFilename : `${safeFilename}_export.csv`;
 
-    return response;
+    return new NextResponse(csvContent, {
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${finalFilename}"`,
+      }
+    });
   } catch (error: any) {
     console.error("Export error:", error);
+    try { require('fs').writeFileSync('/tmp/export-fail.log', error.stack || error.message); } catch (e) {}
     return NextResponse.json({ error: "Export failed" }, { status: 500 });
   }
 }
