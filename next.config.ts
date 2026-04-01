@@ -8,6 +8,9 @@ const nextConfig: NextConfig = {
       { protocol: 'http',  hostname: '**' },
     ],
   },
+  experimental: {
+    memoryBasedWorkersCount: true,
+  },
 };
 
 export default nextConfig;
