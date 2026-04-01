@@ -6,7 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "dev:db:start": "docker compose -p metdb_dev -f docker-compose.dev.yml up -d db",
+    "dev:db:stop": "docker compose -p metdb_dev -f docker-compose.dev.yml down",
+    "dev:db:push": "docker run --rm --network metdb_dev_default -v $(pwd):/app -w /app node:20-alpine sh -c 'DATABASE_URL=\"postgresql://postgres:postgres@db:5432/metdb?schema=public\" npx prisma db push'",
+    "dev:reset": "npm run dev:db:stop && docker volume rm metdb_dev_postgres_dev_data || true && npm run dev:db:start && sleep 3 && npm run dev:db:push",
+    "prod:local:start": "docker compose -p metdb_prod -f docker-compose.prod.yml up -d --build",
+    "prod:local:stop": "docker compose -p metdb_prod -f docker-compose.prod.yml down -v"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",
