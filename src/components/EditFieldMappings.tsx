@@ -255,18 +255,16 @@ function ToggleButton({ active, disabled = false, onClick, label }: { active: bo
 function DroppableTableBody({ id, items, children }: any) {
   const { setNodeRef } = useDroppable({ id, data: { fieldset: id } });
   return (
-    <tbody ref={setNodeRef} className="bg-white">
-      <SortableContext id={id} items={items} strategy={verticalListSortingStrategy}>
+    <SortableContext id={id} items={items} strategy={verticalListSortingStrategy}>
+      <tbody ref={setNodeRef} className="bg-white">
         {children}
-        {items.length === 0 && (
-          <tr>
-            <td colSpan={11} className="px-4 py-8 text-center text-sm text-gray-400 border-b border-gray-100 border-dashed">
-              Drop fields here to assign to {id === 'admin' ? 'Administrative' : 'Descriptive'}
-            </td>
-          </tr>
-        )}
-      </SortableContext>
-    </tbody>
+        <tr className={items.length === 0 ? "table-row" : "hidden"}>
+          <td colSpan={11} className="px-4 py-8 text-center text-sm text-gray-400 border-b border-gray-100 border-dashed">
+            Drop fields here to assign to {id === 'admin' ? 'Administrative' : 'Descriptive'}
+          </td>
+        </tr>
+      </tbody>
+    </SortableContext>
   );
 }
 
@@ -469,34 +467,28 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
     const { active, over } = event;
     if (!over) return;
 
-    // Use our explicit custom fieldset boundary tracker attached to both items and empty droppables
     const overContainer = over.data.current?.fieldset;
     if (!overContainer) return;
 
     setFields(prev => {
       const activeIdx = prev.findIndex(f => f.id === active.id);
       const item = prev[activeIdx];
-      if (!item) return prev; // Should not happen 
+      if (!item) return prev;
 
       const isCurrentlyAdmin = item.isAdministrative;
       const shouldBeAdmin = overContainer === 'admin';
 
       if (isCurrentlyAdmin !== shouldBeAdmin) {
-        // Create an updated duplicate of the array
-        const newItems = [...prev];
-        // Mutate the specific item's container association
-        newItems[activeIdx] = { ...item, isAdministrative: shouldBeAdmin };
+        const mutableFields = [...prev];
+        const overItemIndex = mutableFields.findIndex(f => f.id === over.id);
 
-        // Attempt to find the specific item index we hovered over within the newly associated container
-        const overIdx = newItems.findIndex(f => f.id === over.id);
+        mutableFields[activeIdx] = { ...item, isAdministrative: shouldBeAdmin };
 
-        // If we dropped exactly on top of another item, snap the item to that adjacent visual index 
-        if (overIdx >= 0) {
-          return arrayMove(newItems, activeIdx, overIdx);
+        if (overItemIndex >= 0 && activeIdx !== overItemIndex) {
+          return arrayMove(mutableFields, activeIdx, overItemIndex);
         }
 
-        // Otherwise, we dropped onto the empty container row, returning the mutated array drops it at the bottom mechanically
-        return newItems;
+        return mutableFields;
       }
       return prev;
     });
