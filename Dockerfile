@@ -20,8 +20,6 @@ COPY . .
 RUN npx prisma generate
 
 ENV NEXT_TELEMETRY_DISABLED=1
-# Force Node.js Garbage Collector to run actively under 1GB to prevent Linux VPS OOM SIGKILLs!
-ENV NODE_OPTIONS="--max-old-space-size=1024"
 
 # Build the application
 RUN npm run build
