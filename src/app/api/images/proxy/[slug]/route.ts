@@ -29,10 +29,15 @@ export async function GET(req: Request, props: { params: Promise<{ slug: string 
       return new NextResponse(fileBuffer, { headers });
     }
 
-    // If not cached, the Server Service Account natively proxies it on behalf of the public user!
+    // If not cached, authenticate to Google and download using the USER's LIVE OAuth Token!
+    const session = await getServerSession(authOptions);
+    if (!session) return new NextResponse("Unauthorized", { status: 401 });
+    const accessToken = (session as any).accessToken;
+    if (!accessToken) return new NextResponse("No Google access token available in session", { status: 401 });
 
-    const { getDriveClient } = await import('@/lib/googleAuth');
-    const drive = await getDriveClient();
+    const auth = new google.auth.OAuth2();
+    auth.setCredentials({ access_token: accessToken });
+    const drive = google.drive({ version: 'v3', auth });
 
     const response = await drive.files.get({
       fileId,
@@ -40,7 +45,7 @@ export async function GET(req: Request, props: { params: Promise<{ slug: string 
     }, { responseType: 'stream' });
 
     // Convert Google's Node stream into a raw buffer array in memory
-    const chunks = [];
+    const chunks: Buffer[] = [];
     for await (const chunk of response.data as any) {
       chunks.push(chunk);
     }
