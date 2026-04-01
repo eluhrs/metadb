@@ -11,11 +11,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
-    const accessToken = (session as any).accessToken;
-    if (!accessToken) {
-      return NextResponse.json({ error: "Missing Google Access Token" }, { status: 401 });
-    }
-
     const { name, externalSheetUrl, imageStrategy = "URI" } = await req.json();
 
     if (!name || !externalSheetUrl) {
@@ -26,9 +21,8 @@ export async function POST(req: Request) {
     const match = externalSheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
     const spreadsheetId = match ? match[1] : externalSheetUrl;
 
-    const auth = new google.auth.OAuth2();
-    auth.setCredentials({ access_token: accessToken });
-    const sheets = google.sheets({ version: "v4", auth });
+    const { getSheetsClient } = await import('@/lib/googleAuth');
+    const sheets = await getSheetsClient();
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
