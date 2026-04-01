@@ -301,6 +301,10 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
   }, [collection.id, hasFileFieldSelected, hasFile2Selected]);
 
   const handlePreCache = async (fieldId: string) => {
+    // 1. Defensively save the UI React configuration to Postgres first so they don't lose it if they walk away!
+    const successfullySaved = await saveMappings(false);
+    if (!successfullySaved) return;
+
     setCacheStates(prev => ({ ...prev, [fieldId]: { active: true, total: 0, cached: 0, completed: false } }));
     let isComplete = false;
     let currentTotal = 0;
@@ -370,7 +374,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
     setFields(prev => prev.filter(f => f.id !== id));
   };
 
-  const saveMappings = async () => {
+  const saveMappings = async (redirect = true) => {
     setLoading(true);
     setError("");
     try {
@@ -384,12 +388,16 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
       });
       if (!res.ok) throw new Error("Failed to save changes");
 
-      router.push("/dashboard");
-      router.refresh();
+      if (redirect) {
+        router.push("/dashboard");
+        router.refresh();
+      }
+      return true;
     } catch (err: any) {
       setError(err.message);
+      return false;
     } finally {
-      setLoading(false);
+      if (redirect) setLoading(false); else setLoading(false);
     }
   };
 
@@ -536,7 +544,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
             <div className="w-[1.5px] bg-slate-600"></div>
 
             <button
-              onClick={saveMappings}
+              onClick={() => saveMappings(true)}
               disabled={loading}
               className="flex items-center justify-center space-x-1.5 hover:bg-slate-600 hover:text-white pr-4 pl-3 py-2 transition disabled:opacity-50 cursor-pointer"
             >
