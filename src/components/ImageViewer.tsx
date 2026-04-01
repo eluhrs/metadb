@@ -25,9 +25,14 @@ export function ImageViewer({ imageUri, secondaryImageUri, imageTitle = "Attache
 
     if (!viewerRef.current || !activeRenderUri) return;
 
-    const hotSwapUrl = activeRenderUri.includes("drive.google.com") || activeRenderUri.includes("docs.google.com")
-       ? `/api/images/proxy?url=${encodeURIComponent(activeRenderUri)}&_sb=${sessionBust}`
-       : activeRenderUri;
+    let hotSwapUrl = activeRenderUri;
+    // Switch Drive URLs over to the dynamic API '.dzi' representation if applicable! 
+    if (activeRenderUri.includes("drive.google.com") || activeRenderUri.includes("docs.google.com")) {
+      const match = activeRenderUri.match(/\/d\/([a-zA-Z0-9-_]+)/) || activeRenderUri.match(/id=([a-zA-Z0-9-_]+)/);
+      if (match && match[1]) {
+        hotSwapUrl = `/api/tiles/${match[1]}.dzi`;
+      }
+    }
 
     if (!osdRef.current) {
       (async () => {
@@ -37,7 +42,7 @@ export function ImageViewer({ imageUri, secondaryImageUri, imageTitle = "Attache
         const viewer = OpenSeadragon({
           element: viewerRef.current!,
           prefixUrl: "//openseadragon.github.io/openseadragon/images/", 
-          tileSources: { type: 'image', url: hotSwapUrl },
+          tileSources: hotSwapUrl.endsWith('.dzi') ? hotSwapUrl : { type: 'image', url: hotSwapUrl },
           showNavigationControl: false,
           animationTime: 0.5,
           blendTime: 0.1,
@@ -80,7 +85,7 @@ export function ImageViewer({ imageUri, secondaryImageUri, imageTitle = "Attache
         (viewer as any)._customObserver = observer;
       })();
     } else {
-      osdRef.current.open({ type: 'image', url: hotSwapUrl });
+      osdRef.current.open(hotSwapUrl.endsWith('.dzi') ? hotSwapUrl : { type: 'image', url: hotSwapUrl });
     }
 
     return () => { isMounted = false; };

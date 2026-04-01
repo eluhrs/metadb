@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { google } from "googleapis";
 import { prisma } from "@/lib/prisma";
 import fs from 'fs';
 import path from 'path';
@@ -25,9 +24,9 @@ async function getMetrics(collectionId: string, fieldId?: string | null) {
 
     if (fileFields.length === 0) return { error: "FATAL: Postgres returned zero FieldDefinitions mapped physically to `isFile: true` or `isSecondaryFile: true`. Did you execute 'Save Configuration'?" };
 
-    const cacheDir = path.join(process.cwd(), '.next', 'cache', 'metadb-images');
-    if (!fs.existsSync(cacheDir)) {
-      fs.mkdirSync(cacheDir, { recursive: true });
+    const tilesDir = path.join(process.cwd(), '.next', 'cache', 'tiles');
+    if (!fs.existsSync(tilesDir)) {
+      fs.mkdirSync(tilesDir, { recursive: true });
     }
 
     const records = await prisma.record.findMany({
@@ -80,14 +79,13 @@ async function getMetrics(collectionId: string, fieldId?: string | null) {
 
     const missingIds: string[] = [];
     for (const fileId of googleDriveIds) {
-      const cachedFilePath = path.join(cacheDir, `${fileId}.blob`);
-      const errorFilePath = path.join(cacheDir, `${fileId}.error`);
-      if (!fs.existsSync(cachedFilePath) && !fs.existsSync(errorFilePath)) {
+      const cachedFilePath = path.join(tilesDir, `${fileId}.dzi`);
+      if (!fs.existsSync(cachedFilePath)) {
         missingIds.push(fileId);
       }
     }
 
-    return { totalFiles, missingIds, cacheDir, currentlyCached: totalFiles - missingIds.length };
+    return { totalFiles, missingIds, tilesDir, currentlyCached: totalFiles - missingIds.length };
 }
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -114,9 +112,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const resolvedParams = await params;
     const session = await getServerSession(authOptions);
     if (!session) return new NextResponse("Unauthorized", { status: 401 });
-    
-    const accessToken = (session as any).accessToken;
-    if (!accessToken) return new NextResponse("No Google access token available in session", { status: 401 });
 
     const url = new URL(req.url);
     const fieldId = url.searchParams.get('fieldId');
@@ -124,50 +119,50 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const metrics = await getMetrics(resolvedParams.id, fieldId);
     if (metrics.error) return NextResponse.json({ total: 0, cached: 0, debug: metrics.error });
 
-    const { totalFiles, missingIds, cacheDir, currentlyCached } = metrics as any;
+    const { totalFiles, missingIds, tilesDir, currentlyCached } = metrics as any;
 
-    const BATCH_LIMIT = 15;
+    const BATCH_LIMIT = 5; 
     const processingBatch = missingIds.slice(0, BATCH_LIMIT);
 
     if (processingBatch.length === 0) {
        return NextResponse.json({ total: totalFiles, cached: totalFiles });
     }
 
-    const auth = new google.auth.OAuth2();
-    auth.setCredentials({ access_token: accessToken });
-    const drive = google.drive({ version: 'v3', auth });
+    const { getDriveClient } = await import('@/lib/googleAuth');
+    const drive = await getDriveClient();
+    const sharp = (await import('sharp')).default;
 
     let newlyCached = 0;
 
-    for (const fileId of processingBatch) {
+    await Promise.allSettled(processingBatch.map(async (fileId: string) => {
       try {
         const response = await drive.files.get({
           fileId,
           alt: 'media'
-        }, { responseType: 'stream' });
+        }, { responseType: 'arraybuffer' });
 
-        const chunks = [];
-        for await (const chunk of response.data as any) {
-          chunks.push(chunk);
-        }
-        const buffer = Buffer.concat(chunks);
+        const buffer = Buffer.from(response.data as ArrayBuffer);
         
-        fs.writeFileSync(path.join(cacheDir, `${fileId}.blob`), buffer);
+        const dziOutputPath = path.join(tilesDir, fileId);
+        await sharp(buffer)
+          .rotate() // Auto-orients the image based on EXIF before tiling
+          .tile({ size: 256 })
+          .toFile(dziOutputPath);
+          
         newlyCached++;
       } catch (err) {
-        console.error(`Failed to mathematically cache physical binary blob for ${fileId}`, err);
-        fs.writeFileSync(path.join(cacheDir, `${fileId}.error`), "FAILED");
-        newlyCached++;
+        console.error(`Failed to ingest and tile ${fileId}:`, err);
       }
-    }
+    }));
 
+    // Return the correctly incremented sync response to signal the frontend's batch state!
     return NextResponse.json({ 
        total: totalFiles, 
-       cached: currentlyCached + newlyCached 
+       cached: currentlyCached + newlyCached
     });
 
   } catch (error: any) {
     console.error("Batch Cache Execution Fault:", error);
-    return new NextResponse(error.message || "Failed to successfully bulk download generic Drive blobs", { status: 500 });
+    return new NextResponse(error.message || "Failed to initiate deep zoom caching", { status: 500 });
   }
 }

@@ -23,10 +23,11 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - GEMINI_MODELS=${GEMINI_MODELS}
       - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - GOOGLE_SERVICE_ACCOUNT_CREDENTIALS=${GOOGLE_SERVICE_ACCOUNT_CREDENTIALS}
     depends_on:
       - db
     volumes:
-      - ./image-cache:/app/.next/cache/metadb-images
+      - /opt/metadb/images:/app/.next/cache/tiles
 
 volumes:
   metadb_prod_data:

@@ -1,0 +1,100 @@
+app-1  |       hash: ''
+app-1  |     },
+app-1  |     method: 'GET',
+app-1  |     apiVersion: '',
+app-1  |     responseType: 'stream',
+app-1  |     userAgentDirectives: [ [Object] ],
+app-1  |     paramsSerializer: [Function (anonymous)],
+app-1  |     headers: Headers {
+app-1  |       'accept-encoding': 'gzip',
+app-1  |       authorization: '<<REDACTED> - See `errorRedactor` option in `gaxios` for configuration>.',
+app-1  |       'user-agent': 'google-api-nodejs-client/8.0.1 (gzip)',
+app-1  |       'x-goog-api-client': 'gdcl/8.0.1 gl-node/20.20.0'
+app-1  |     },
+app-1  |     params: { alt: 'media' },
+app-1  |     validateStatus: [Function (anonymous)],
+app-1  |     retry: true,
+app-1  |     errorRedactor: [Function: defaultErrorRedactor],
+app-1  |     retryConfig: {
+app-1  |       currentRetryAttempt: 0,
+app-1  |       retry: 3,
+app-1  |       httpMethodsToRetry: [Array],
+app-1  |       noResponseRetries: 2,
+app-1  |       retryDelayMultiplier: 2,
+app-1  |       timeOfFirstRequest: 1774976360380,
+app-1  |       totalTimeout: 9007199254740991,
+app-1  |       maxRetryDelay: 9007199254740991,
+app-1  |       statusCodesToRetry: [Array]
+app-1  |     }
+app-1  |   },
+app-1  |   response: Response {
+app-1  |     size: 0,
+app-1  |     data: undefined,
+app-1  |     config: {
+app-1  |       url: URL {},
+app-1  |       method: 'GET',
+app-1  |       apiVersion: '',
+app-1  |       responseType: 'stream',
+app-1  |       userAgentDirectives: [Array],
+app-1  |       paramsSerializer: [Function (anonymous)],
+app-1  |       headers: Headers {
+app-1  |         'accept-encoding': 'gzip',
+app-1  |         authorization: '<<REDACTED> - See `errorRedactor` option in `gaxios` for configuration>.',
+app-1  |         'user-agent': 'google-api-nodejs-client/8.0.1 (gzip)',
+app-1  |         'x-goog-api-client': 'gdcl/8.0.1 gl-node/20.20.0'
+app-1  |       },
+app-1  |       params: [Object],
+app-1  |       validateStatus: [Function (anonymous)],
+app-1  |       retry: true,
+app-1  |       errorRedactor: [Function: defaultErrorRedactor]
+app-1  |     },
+app-1  |     [Symbol(Body internals)]: {
+app-1  |       body: [Gunzip],
+app-1  |       stream: [Gunzip],
+app-1  |       boundary: null,
+app-1  |       disturbed: false,
+app-1  |       error: null
+app-1  |     },
+app-1  |     [Symbol(Response internals)]: {
+app-1  |       type: 'default',
+app-1  |       url: 'https://www.googleapis.com/drive/v3/files/1tINIeDmCWhewxnqV6oUV4qXndB418iDg?alt=media',
+app-1  |       status: 401,
+app-1  |       statusText: 'Unauthorized',
+app-1  |       headers: [Object],
+app-1  |       counter: 0,
+app-1  |       highWaterMark: 16384
+app-1  |     }
+app-1  |   },
+app-1  |   code: 401,
+app-1  |   status: 401,
+app-1  |   error: undefined,
+app-1  |   [cause]: {
+app-1  |     message: '{\n' +
+app-1  |       '  "error": {\n' +
+app-1  |       '    "code": 401,\n' +
+app-1  |       '    "message": "Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project.",\n' +
+app-1  |       '    "errors": [\n' +
+app-1  |       '      {\n' +
+app-1  |       '        "message": "Invalid Credentials",\n' +
+app-1  |       '        "domain": "global",\n' +
+app-1  |       '        "reason": "authError",\n' +
+app-1  |       '        "location": "Authorization",\n' +
+app-1  |       '        "locationType": "header"\n' +
+app-1  |       '      }\n' +
+app-1  |       '    ],\n' +
+app-1  |       '    "status": "UNAUTHENTICATED"\n' +
+app-1  |       '  }\n' +
+app-1  |       '}\n',
+app-1  |     code: 401,
+app-1  |     status: 'Unauthorized'
+app-1  |   }
+app-1  | }
+app-1  |  GET /api/images/proxy?url=https%3A%2F%2Fdrive.google.com%2Ffile%2Fd%2F1tINIeDmCWhewxnqV6oUV4qXndB418iDg%2Fview%3Fusp%3Dsharing&_sb=wchngm 500 in 347ms (next.js: 5ms, application-code: 342ms)
+app-1  | prisma:query SELECT "public"."Collection"."id", "public"."Collection"."name", "public"."Collection"."imageStrategy", "public"."Collection"."externalSheetUrl", "public"."Collection"."createdAt", "public"."Collection"."updatedAt" FROM "public"."Collection" WHERE ("public"."Collection"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+app-1  | prisma:query SELECT "public"."FieldDefinition"."id", "public"."FieldDefinition"."collectionId", "public"."FieldDefinition"."name", "public"."FieldDefinition"."description", "public"."FieldDefinition"."isFile", "public"."FieldDefinition"."isSecondaryFile", "public"."FieldDefinition"."isLong", "public"."FieldDefinition"."isAdministrative", "public"."FieldDefinition"."isBulk", "public"."FieldDefinition"."isLocked", "public"."FieldDefinition"."isControlled", "public"."FieldDefinition"."controlledVocabList", "public"."FieldDefinition"."controlledSeparator", "public"."FieldDefinition"."controlledMulti", "public"."FieldDefinition"."controlledAdds", "public"."FieldDefinition"."controlledDrop", "public"."FieldDefinition"."aiPrompt", "public"."FieldDefinition"."aiModel", "public"."FieldDefinition"."columnIndex", "public"."FieldDefinition"."uiOrder", "public"."FieldDefinition"."createdAt", "public"."FieldDefinition"."updatedAt" FROM "public"."FieldDefinition" WHERE "public"."FieldDefinition"."collectionId" = $1 ORDER BY "public"."FieldDefinition"."createdAt" ASC OFFSET $2
+app-1  | prisma:query SELECT "public"."Collection"."id", "public"."Collection"."name" FROM "public"."Collection" WHERE 1=1 ORDER BY "public"."Collection"."name" ASC OFFSET $1
+app-1  | prisma:query SELECT "public"."Record"."id" FROM "public"."Record" WHERE "public"."Record"."collectionId" = $1 ORDER BY "public"."Record"."createdAt" ASC OFFSET $2
+app-1  | prisma:query SELECT "public"."Record"."id", "public"."Record"."collectionId", "public"."Record"."createdAt", "public"."Record"."updatedAt" FROM "public"."Record" WHERE ("public"."Record"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+app-1  | prisma:query SELECT "public"."Image"."id", "public"."Image"."recordId", "public"."Image"."uri", "public"."Image"."secondaryUri", "public"."Image"."localPath", "public"."Image"."createdAt", "public"."Image"."updatedAt" FROM "public"."Image" WHERE "public"."Image"."recordId" = $1 OFFSET $2
+app-1  | prisma:query SELECT "public"."Value"."id", "public"."Value"."recordId", "public"."Value"."fieldId", "public"."Value"."value", "public"."Value"."createdAt", "public"."Value"."updatedAt" FROM "public"."Value" WHERE "public"."Value"."recordId" = $1 OFFSET $2
+app-1  |  GET /collections/b10fd5e2-155e-4a77-846b-cf8436030e16?index=49 200 in 106ms (next.js: 26ms, proxy.ts: 10ms, application-code: 69ms)

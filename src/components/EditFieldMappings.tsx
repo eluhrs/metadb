@@ -271,8 +271,8 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
     return [...collection.fieldDefinitions].sort((a: any, b: any) => (a.uiOrder || 0) - (b.uiOrder || 0));
   });
 
-  const descriptiveFields = fields.filter((f) => !f.isAdministrative).sort((a, b) => a.uiOrder - b.uiOrder);
-  const administrativeFields = fields.filter(f => f.isAdministrative);
+  const descriptiveFields = fields.filter((f) => !f.isAdministrative);
+  const administrativeFields = fields.filter((f) => f.isAdministrative);
   const hasFileFieldSelected = fields.some(f => f.isFile);
   const hasFile2Selected = fields.some(f => f.isSecondaryFile);
 
@@ -305,6 +305,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
     let isComplete = false;
     let currentTotal = 0;
 
+    // Dependable Sequential Polling Loop
     while (!isComplete) {
       try {
         const res = await fetch(`/api/collections/${collection.id}/cache?fieldId=${fieldId}`, { method: 'POST' });

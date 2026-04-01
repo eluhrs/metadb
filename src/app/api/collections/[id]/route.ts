@@ -39,8 +39,8 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
       where: { id }
     });
 
-    // 3. Systematically shred the orphaned multi-megabyte .blob files from the local Proxy Cache
-    const cacheDir = path.join(process.cwd(), '.next', 'cache', 'metadb-images');
+    // 3. Systematically shred the orphaned local OpenSeadragon DZI tiles from the file system
+    const cacheDir = path.join(process.cwd(), '.next', 'cache', 'tiles');
     
     // Run asynchronously to avoid blocking the HTTP response latency for the user
     Promise.all(allUrisToPurge.map(async (uri) => {
@@ -48,20 +48,21 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
       const match = uri.match(/\/d\/([a-zA-Z0-9-_]+)/) || uri.match(/id=([a-zA-Z0-9-_]+)/);
       if (match) {
         const fileId = match[1];
-        const blobPath = path.join(cacheDir, `${fileId}.blob`);
-        const errorPath = path.join(cacheDir, `${fileId}.error`);
-        console.log(`[GARBAGE COLLECTION] Target Payload: ${blobPath}`);
+        const dziXmlPath = path.join(cacheDir, `${fileId}.dzi`);
+        const dziFilesPath = path.join(cacheDir, `${fileId}_files`);
+        
         try {
-          if (fs.existsSync(blobPath)) {
-            await fs.promises.unlink(blobPath);
-            console.log(`[GARBAGE COLLECTION] Successfully shredded: ${fileId}.blob`);
+          if (fs.existsSync(dziXmlPath)) {
+            await fs.promises.unlink(dziXmlPath);
+            console.log(`[GARBAGE COLLECTION] Shredded XML Tracker: ${dziXmlPath}`);
           }
-          if (fs.existsSync(errorPath)) {
-            await fs.promises.unlink(errorPath);
+          if (fs.existsSync(dziFilesPath)) {
+             await fs.promises.rm(dziFilesPath, { recursive: true, force: true });
+             console.log(`[GARBAGE COLLECTION] Shredded Tile Directory: ${dziFilesPath}`);
           }
         } catch (e) {
           // Swallow minor unlink failures to prevent breaking the promise chain
-          console.error(`[GARBAGE COLLECTION] Failed to natively garbage collect orphaned blob: ${fileId}.blob`, e);
+          console.error(`[GARBAGE COLLECTION] Failed to natively garbage collect locally cached tiles for ID: ${fileId}`, e);
         }
       } else {
         console.log(`[GARBAGE COLLECTION] Unrecognized Drive URL format, skipping regex: ${uri}`);
