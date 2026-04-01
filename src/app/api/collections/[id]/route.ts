@@ -40,7 +40,7 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
     });
 
     // 3. Systematically shred the orphaned local OpenSeadragon DZI tiles from the file system
-    const cacheDir = path.join(process.cwd(), '.next', 'cache', 'tiles');
+    const cacheDir = path.join(/*turbopackIgnore: true*/ process.cwd(), '.next', 'cache', 'tiles');
     
     // Run asynchronously to avoid blocking the HTTP response latency for the user
     Promise.all(allUrisToPurge.map(async (uri) => {

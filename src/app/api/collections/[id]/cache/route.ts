@@ -24,7 +24,7 @@ async function getMetrics(collectionId: string, fieldId?: string | null) {
 
     if (fileFields.length === 0) return { error: "FATAL: Postgres returned zero FieldDefinitions mapped physically to `isFile: true` or `isSecondaryFile: true`. Did you execute 'Save Configuration'?" };
 
-    const tilesDir = path.join(process.cwd(), '.next', 'cache', 'tiles');
+    const tilesDir = path.join(/*turbopackIgnore: true*/ process.cwd(), '.next', 'cache', 'tiles');
     if (!fs.existsSync(tilesDir)) {
       fs.mkdirSync(tilesDir, { recursive: true });
     }

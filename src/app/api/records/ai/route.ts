@@ -64,7 +64,7 @@ export async function POST(req: Request) {
       const fileId = match ? match[1] : null;
 
       if (fileId) {
-        const cacheDir = path.join(process.cwd(), '.next', 'cache', 'metadb-images');
+        const cacheDir = path.join(/*turbopackIgnore: true*/ process.cwd(), '.next', 'cache', 'metadb-images');
         if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
         
         const cachedFilePath = path.join(cacheDir, `${fileId}.blob`);

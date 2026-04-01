@@ -23,7 +23,7 @@ export async function GET(req: Request) {
       if (!fileId) return new NextResponse("Invalid Google Drive URL structure", { status: 400 });
 
       // Highly Aggressive Caching Layer
-      const cacheDir = path.join(process.cwd(), '.next', 'cache', 'metadb-images');
+      const cacheDir = path.join(/*turbopackIgnore: true*/ process.cwd(), '.next', 'cache', 'metadb-images');
       if (!fs.existsSync(cacheDir)) {
         fs.mkdirSync(cacheDir, { recursive: true });
       }

@@ -21,7 +21,7 @@ export async function POST(req: Request) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const filename = `${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
-    const uploadDir = path.join(process.cwd(), "public/uploads", collectionId);
+    const uploadDir = path.join(/*turbopackIgnore: true*/ process.cwd(), "public/uploads", collectionId);
     
     const fs = require('fs');
     if (!fs.existsSync(uploadDir)) {
