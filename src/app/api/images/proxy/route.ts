@@ -39,15 +39,9 @@ export async function GET(req: Request) {
         return new NextResponse(fileBuffer, { headers });
       }
 
-      // If not cached, authenticate to Google and download it
-      const session = await getServerSession(authOptions);
-      if (!session) return new NextResponse("Unauthorized", { status: 401 });
-      const accessToken = (session as any).accessToken;
-      if (!accessToken) return new NextResponse("No Google access token available in session", { status: 401 });
-
-      const auth = new google.auth.OAuth2();
-      auth.setCredentials({ access_token: accessToken });
-      const drive = google.drive({ version: 'v3', auth });
+      // Natively proxy through System Service Account to support Public Guests and bypass 1-hour OAuth User Session timeouts!
+      const { getDriveClient } = await import('@/lib/googleAuth');
+      const drive = await getDriveClient();
 
       const response = await drive.files.get({
         fileId,
