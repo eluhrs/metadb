@@ -5,7 +5,7 @@
  *   Scans a (shared) Google Drive folder full of scanned card images named
  *   like  <base>A.jpg  (front)  and  <base>B.jpg  (back), pairs them up by
  *   their shared <base>, and writes a spreadsheet of Drive share links with
- *   one row per card:  Base | Front Filename | Front URL | Back Filename | Back URL
+ *   one row per card:  Base | Front Filename | Back Filename | Front URL | Back URL
  *
  *   The Front URL / Back URL columns are what you map to "File 1" (front) and
  *   "File 2" (back) on metadb's "Configure Field Settings" screen when you
@@ -35,11 +35,19 @@
  *      Works for both My Drive folders and Shared Drive folders, as long as
  *      the account running the script can see the folder.
  *
- *   5. Click into the sheet TAB you want the output written to (it writes to
- *      the currently active tab and overwrites its contents).
+ *   5. Save the Apps Script project (disk icon / Ctrl+S), then RELOAD the
+ *      spreadsheet browser tab. A new menu "Drive Links" appears in the
+ *      spreadsheet's own menu bar (next to File / Edit / View / ...).
  *
- *   6. Run the function `buildDriveLinks` (pick it in the toolbar dropdown,
- *      click Run). The FIRST run asks you to authorize — grant the Drive +
+ *   6. Click into the sheet TAB you want the output written to (it writes to
+ *      the currently active tab and overwrites its contents), then run it:
+ *
+ *        • Easiest — from the spreadsheet:  Drive Links ▸ Build front/back links
+ *        • Or from the Apps Script editor:  select `buildDriveLinks` in the
+ *          toolbar's function dropdown (it only appears after you save) and
+ *          click Run.
+ *
+ *      The FIRST run either way asks you to authorize — grant the Drive +
  *      Sheets permissions it requests. (You are authorizing as YOURSELF, using
  *      your own access to the folder — no service account involved here.)
  *
@@ -75,6 +83,19 @@ const INCLUDE_UNMATCHED = true;
 // =============================================================================
 
 
+/**
+ * Adds a "Drive Links" menu to the spreadsheet so you can run the tool without
+ * opening the Apps Script editor. Runs automatically when the sheet is opened;
+ * reload the spreadsheet once after installing the script to make it appear.
+ */
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('Drive Links')
+    .addItem('Build front/back links', 'buildDriveLinks')
+    .addToUi();
+}
+
+
 function buildDriveLinks() {
   if (!FOLDER || FOLDER.indexOf('PASTE_') === 0) {
     throw new Error('Set FOLDER at the top of the script to your Drive folder URL (or id) first.');
@@ -108,7 +129,7 @@ function buildDriveLinks() {
     pairs[base][slot] = { name: name, id: file.getId() };
   }
 
-  const rows = [['Base', 'Front Filename', 'Front URL', 'Back Filename', 'Back URL']];
+  const rows = [['Base', 'Front Filename', 'Back Filename', 'Front URL', 'Back URL']];
   const bases = Object.keys(pairs).sort();
   let complete = 0, frontOnly = 0, backOnly = 0;
 
@@ -125,8 +146,8 @@ function buildDriveLinks() {
     rows.push([
       base,
       hasF ? p.front.name : '',
-      hasF ? driveUrl(p.front.id) : '',
       hasB ? p.back.name : '',
+      hasF ? driveUrl(p.front.id) : '',
       hasB ? driveUrl(p.back.id) : ''
     ]);
   });
