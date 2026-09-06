@@ -20,31 +20,34 @@
  * ONE-TIME SETUP  (do this each time you need to (re)generate the sheet)
  *
  *   1. Create or open the Google Sheet that should hold the output.
- *        (The script writes to a tab named by SHEET_NAME below, creating it if
- *         needed. Existing contents of that tab are overwritten.)
+ *        (The script writes to whichever TAB is active when you run it and
+ *         overwrites its contents — see step 5.)
  *
  *   2. In that Sheet:  Extensions ▸ Apps Script.
  *
  *   3. Delete the stub in Code.gs and paste the ENTIRE contents of this file.
  *      (Editor ▸ save. The file name inside Apps Script doesn't matter.)
  *
- *   4. Get your folder id: open the Drive folder in the browser; the URL looks
- *      like  https://drive.google.com/drive/folders/XXXXXXXXXXXXXXXXX
- *      Copy the XXXX part and paste it into FOLDER_ID below.
- *      (Works for both My Drive folders and Shared Drive folders, as long as
- *       the account running the script can see the folder.)
+ *   4. Open the Drive folder in the browser and copy its whole URL from the
+ *      address bar (e.g. https://drive.google.com/drive/folders/XXXX?usp=...).
+ *      Paste it into FOLDER below. (A bare folder id works too — the script
+ *      pulls the id out of whatever you paste.)
+ *      Works for both My Drive folders and Shared Drive folders, as long as
+ *      the account running the script can see the folder.
  *
- *   5. Run the function `buildDriveLinks` (pick it in the toolbar dropdown,
+ *   5. Click into the sheet TAB you want the output written to (it writes to
+ *      the currently active tab and overwrites its contents).
+ *
+ *   6. Run the function `buildDriveLinks` (pick it in the toolbar dropdown,
  *      click Run). The FIRST run asks you to authorize — grant the Drive +
  *      Sheets permissions it requests. (You are authorizing as YOURSELF, using
  *      your own access to the folder — no service account involved here.)
  *
- *   6. When it finishes you'll get a toast + a Logger summary
+ *   7. When it finishes you'll get a toast + a Logger summary
  *      (View ▸ Logs / Executions) reporting how many complete pairs it found
- *      and how many files were unmatched or skipped. The output lands on the
- *      "Drive Links" tab.
+ *      and how many files were unmatched or skipped.
  *
- *   7. Import/paste those columns into your ingest spreadsheet, then in metadb
+ *   8. Import/paste those columns into your ingest spreadsheet, then in metadb
  *      map Front URL → File 1 and Back URL → File 2.
  *
  * ----------------------------------------------------------------------------
@@ -53,7 +56,7 @@
  *     base strings (e.g. inconsistent zero-padding: _001A.jpg vs _0001B.jpg),
  *     they will NOT pair — they'll each show up as a front-only / back-only row
  *     (see INCLUDE_UNMATCHED) and be counted in the summary so you can spot it.
- *   - Only files DIRECTLY in FOLDER_ID are scanned (not subfolders).
+ *   - Only files DIRECTLY in the folder are scanned (not subfolders).
  *   - Files whose names don't end in [AaBb].jpg/.jpeg are skipped and counted.
  *   - Generating a link does NOT change sharing/permissions. metadb fetches the
  *     image via its service account, so that account must have access to the
@@ -62,11 +65,8 @@
  */
 
 // ===== CONFIG =================================================================
-// Paste the shared Drive folder id here (the part after /folders/ in its URL):
-const FOLDER_ID = 'PASTE_SHARED_DRIVE_FOLDER_ID_HERE';
-
-// Tab the output is written to (created if missing; its contents are replaced):
-const SHEET_NAME = 'Drive Links';
+// Paste the whole Drive folder URL here (a bare folder id also works):
+const FOLDER = 'PASTE_SHARED_DRIVE_FOLDER_URL_HERE';
 
 // Emit rows for fronts-without-backs and backs-without-fronts too (with the
 // missing side left blank), so nothing is silently dropped. Set false to emit
@@ -76,11 +76,11 @@ const INCLUDE_UNMATCHED = true;
 
 
 function buildDriveLinks() {
-  if (!FOLDER_ID || FOLDER_ID.indexOf('PASTE_') === 0) {
-    throw new Error('Set FOLDER_ID at the top of the script to your Drive folder id first.');
+  if (!FOLDER || FOLDER.indexOf('PASTE_') === 0) {
+    throw new Error('Set FOLDER at the top of the script to your Drive folder URL (or id) first.');
   }
 
-  const folder = DriveApp.getFolderById(FOLDER_ID);
+  const folder = DriveApp.getFolderById(extractFolderId(FOLDER));
   const files = folder.getFiles();
 
   // base -> { front: {name, id} | null, back: {name, id} | null }
@@ -132,8 +132,7 @@ function buildDriveLinks() {
   });
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(SHEET_NAME);
-  if (!sheet) sheet = ss.insertSheet(SHEET_NAME);
+  const sheet = ss.getActiveSheet();
   sheet.clearContents();
   sheet.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
   sheet.setFrozenRows(1);
@@ -143,9 +142,19 @@ function buildDriveLinks() {
     frontOnly + ' front-only · ' +
     backOnly + ' back-only · ' +
     skipped + ' skipped (name not *[AaBb].jpg) · ' +
-    dupes + ' duplicate sides. Output on "' + SHEET_NAME + '".';
+    dupes + ' duplicate sides. Output on "' + sheet.getName() + '".';
   Logger.log(summary);
   try { ss.toast(summary, 'build-drive-links', 12); } catch (e) { /* toast only works when bound to a Sheet */ }
+}
+
+/**
+ * Accepts a full Drive folder URL or a bare id and returns the folder id.
+ * Handles .../folders/<id>, ...?id=<id>, and open?id=<id> shapes.
+ */
+function extractFolderId(input) {
+  const s = String(input).trim();
+  const m = s.match(/\/folders\/([A-Za-z0-9_-]+)/) || s.match(/[?&]id=([A-Za-z0-9_-]+)/);
+  return m ? m[1] : s;
 }
 
 /**
