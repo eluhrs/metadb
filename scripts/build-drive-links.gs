@@ -2,70 +2,83 @@
  * build-drive-links.gs — Google Apps Script
  * ============================================================================
  * PURPOSE
- *   Scans a (shared) Google Drive folder full of scanned card images named
- *   like  <base>A.jpg  (front)  and  <base>B.jpg  (back), pairs them up by
- *   their shared <base>, and writes a spreadsheet of Drive share links with
- *   one row per card:  Base | Front Filename | Back Filename | Front URL | Back URL
+ *   Scans a (shared) Google Drive folder of scanned card images named like
+ *   <prefix><number>A.jpg (front) and <prefix><number>B.jpg (back), pairs
+ *   front+back BY NUMBER, and writes one row per card:
+ *
+ *     Status | Base | Front Filename | Back Filename | Front URL | Back URL
+ *
+ *   You give it the FIRST card's full filename (which encodes the prefix, the
+ *   starting number, and the zero-pad width). It then walks the sequence from
+ *   that number up to the highest number found in the folder — so a card that
+ *   is ENTIRELY absent still gets a row, flagged in the Status column. That is
+ *   how you catch gaps instead of ending up with silently-missing lines.
+ *
+ *   Status column (col A), color-coded:
+ *     ✅ OK             front and back both present
+ *     ❌ Missing back   front present, back absent
+ *     ❌ Missing front  back present, front absent
+ *     ❌ Missing card   neither side present for that number in the sequence
  *
  *   The Front URL / Back URL columns are what you map to "File 1" (front) and
  *   "File 2" (back) on metadb's "Configure Field Settings" screen when you
  *   ingest the collection. The URL format below is the one metadb's image
- *   proxy understands (it extracts the file id via  /\/d\/([A-Za-z0-9-_]+)/  —
+ *   proxy understands (it extracts the file id via /\/d\/([A-Za-z0-9-_]+)/ —
  *   see src/app/api/images/proxy/route.ts).
  *
- *   Side letter is case-insensitive: *A.jpg or *a.jpg = front, *B.jpg / *b.jpg
- *   = back. .jpeg is also accepted.
+ *   Front/back are matched by NUMERIC value, so inconsistent zero-padding
+ *   (_001A.jpg vs _0001B.jpg) still pairs correctly. Side letter + extension
+ *   are case-insensitive; .jpeg is accepted.
  *
  * ----------------------------------------------------------------------------
  * ONE-TIME SETUP  (do this each time you need to (re)generate the sheet)
  *
  *   1. Create or open the Google Sheet that should hold the output.
  *        (The script writes to whichever TAB is active when you run it and
- *         overwrites its contents — see step 5.)
+ *         REPLACES its contents — see step 6.)
  *
  *   2. In that Sheet:  Extensions ▸ Apps Script.
  *
  *   3. Delete the stub in Code.gs and paste the ENTIRE contents of this file.
- *      (Editor ▸ save. The file name inside Apps Script doesn't matter.)
  *
  *   4. Open the Drive folder in the browser and copy its whole URL from the
  *      address bar (e.g. https://drive.google.com/drive/folders/XXXX?usp=...).
- *      Paste it into FOLDER below. (A bare folder id works too — the script
- *      pulls the id out of whatever you paste.)
- *      Works for both My Drive folders and Shared Drive folders, as long as
- *      the account running the script can see the folder.
+ *      Paste it into FOLDER below. (A bare folder id works too.) Works for My
+ *      Drive and Shared Drive folders the running account can see.
  *
- *   5. Save the Apps Script project (disk icon / Ctrl+S), then RELOAD the
- *      spreadsheet browser tab. A new menu "Drive Links" appears in the
+ *   5. Copy the FIRST card's full filename (e.g. AGROB_00001A.jpg) and paste it
+ *      into FIRST_FILENAME below. This sets the prefix, the starting number,
+ *      and the zero-pad width for the whole sequence. (Front or back sample is
+ *      fine — only the prefix/number/width are used.)
+ *
+ *   6. Save the Apps Script project (disk icon / Ctrl+S), then RELOAD the
+ *      spreadsheet browser tab. A "Drive Links" menu appears in the
  *      spreadsheet's own menu bar (next to File / Edit / View / ...).
  *
- *   6. Click into the sheet TAB you want the output written to (it writes to
- *      the currently active tab and overwrites its contents), then run it:
- *
+ *   7. Click into the sheet TAB you want the output on (it REPLACES that tab's
+ *      contents), then run it:
  *        • Easiest — from the spreadsheet:  Drive Links ▸ Build front/back links
  *        • Or from the Apps Script editor:  select `buildDriveLinks` in the
- *          toolbar's function dropdown (it only appears after you save) and
- *          click Run.
+ *          toolbar's function dropdown (it only appears after you save), Run.
+ *      The FIRST run asks you to authorize — grant the Drive + Sheets access.
+ *      (You authorize as YOURSELF, using your own access — no service account.)
  *
- *      The FIRST run either way asks you to authorize — grant the Drive +
- *      Sheets permissions it requests. (You are authorizing as YOURSELF, using
- *      your own access to the folder — no service account involved here.)
+ *   8. Read the toast / Logger summary (View ▸ Logs) for the count of OK vs
+ *      missing cards/fronts/backs. Scan col A for the red ❌ rows.
  *
- *   7. When it finishes you'll get a toast + a Logger summary
- *      (View ▸ Logs / Executions) reporting how many complete pairs it found
- *      and how many files were unmatched or skipped.
- *
- *   8. Import/paste those columns into your ingest spreadsheet, then in metadb
+ *   9. Import/paste the columns into your ingest spreadsheet, then in metadb
  *      map Front URL → File 1 and Back URL → File 2.
  *
  * ----------------------------------------------------------------------------
  * NOTES / GOTCHAS
- *   - Pairing is by EXACT <base> match. If a front and its back have different
- *     base strings (e.g. inconsistent zero-padding: _001A.jpg vs _0001B.jpg),
- *     they will NOT pair — they'll each show up as a front-only / back-only row
- *     (see INCLUDE_UNMATCHED) and be counted in the summary so you can spot it.
+ *   - The sequence END is the highest number found in the folder. If the LAST
+ *     card(s) are entirely missing, the script can't know they should exist —
+ *     if you know the true last number, set END_NUMBER below to force it.
  *   - Only files DIRECTLY in the folder are scanned (not subfolders).
- *   - Files whose names don't end in [AaBb].jpg/.jpeg are skipped and counted.
+ *   - Files whose names don't end in <number>[AaBb].jpg/.jpeg, or whose prefix
+ *     differs from FIRST_FILENAME's, are skipped and counted in the summary.
+ *   - Files numbered BEFORE the first card are appended at the bottom flagged
+ *     "⚠️ Before first card" so nothing is hidden.
  *   - Generating a link does NOT change sharing/permissions. metadb fetches the
  *     image via its service account, so that account must have access to the
  *     folder for thumbnails to render — this script does not touch that.
@@ -76,10 +89,12 @@
 // Paste the whole Drive folder URL here (a bare folder id also works):
 const FOLDER = 'PASTE_SHARED_DRIVE_FOLDER_URL_HERE';
 
-// Emit rows for fronts-without-backs and backs-without-fronts too (with the
-// missing side left blank), so nothing is silently dropped. Set false to emit
-// only complete front+back pairs.
-const INCLUDE_UNMATCHED = true;
+// Paste the FIRST card's full filename (sets prefix + start number + padding):
+const FIRST_FILENAME = 'PASTE_FIRST_CARD_FILENAME_HERE'; // e.g. AGROB_00001A.jpg
+
+// Optional: force the last number in the sequence (catches trailing cards that
+// are entirely missing from the folder). Leave 0 to auto-detect from the folder.
+const END_NUMBER = 0;
 // =============================================================================
 
 
@@ -100,72 +115,134 @@ function buildDriveLinks() {
   if (!FOLDER || FOLDER.indexOf('PASTE_') === 0) {
     throw new Error('Set FOLDER at the top of the script to your Drive folder URL (or id) first.');
   }
+  if (!FIRST_FILENAME || FIRST_FILENAME.indexOf('PASTE_') === 0) {
+    throw new Error("Set FIRST_FILENAME to the first card's full filename (e.g. AGROB_00001A.jpg).");
+  }
+
+  const first = parseName(FIRST_FILENAME);
+  if (!first) {
+    throw new Error('FIRST_FILENAME "' + FIRST_FILENAME +
+                    '" is not of the form <prefix><number><A|B>.jpg');
+  }
+  const prefix = first.prefix;
+  const width = first.width;
+  const start = first.num;
 
   const folder = DriveApp.getFolderById(extractFolderId(FOLDER));
   const files = folder.getFiles();
 
-  // base -> { front: {name, id} | null, back: {name, id} | null }
-  const pairs = {};
-  let skipped = 0, dupes = 0;
+  // numeric n -> { front: {name,id}|null, back: {name,id}|null }
+  const seq = {};
+  const beforeStart = {}; // n < start, surfaced separately
+  let maxNum = start, skipped = 0, otherPrefix = 0, dupes = 0;
 
   while (files.hasNext()) {
     const file = files.next();
     const name = file.getName();
 
-    // <base><side>.jpg|.jpeg  — side A/a = front, B/b = back (case-insensitive).
-    const m = name.match(/^(.+)([ab])\.jpe?g$/i);
-    if (!m) { skipped++; continue; }
+    const info = parseName(name);
+    if (!info) { skipped++; Logger.log('Skipped (no <number>[A|B].jpg): ' + name); continue; }
+    if (info.prefix !== prefix) { otherPrefix++; Logger.log('Skipped (prefix != "' + prefix + '"): ' + name); continue; }
 
-    const base = m[1];
-    const slot = m[2].toLowerCase() === 'a' ? 'front' : 'back';
+    const bucket = info.num < start ? beforeStart : seq;
+    if (info.num >= start && info.num > maxNum) maxNum = info.num;
 
-    if (!pairs[base]) pairs[base] = { front: null, back: null };
-    if (pairs[base][slot]) {
+    if (!bucket[info.num]) bucket[info.num] = { front: null, back: null };
+    const slot = info.side === 'a' ? 'front' : 'back';
+    if (bucket[info.num][slot]) {
       dupes++;
-      Logger.log('WARNING: duplicate ' + slot + ' for base "' + base + '": ' + name +
-                 ' (keeping first: ' + pairs[base][slot].name + ')');
+      Logger.log('WARNING: duplicate ' + slot + ' for number ' + info.num + ': ' + name +
+                 ' (keeping first: ' + bucket[info.num][slot].name + ')');
       continue;
     }
-    pairs[base][slot] = { name: name, id: file.getId() };
+    bucket[info.num][slot] = { name: name, id: file.getId() };
   }
 
-  const rows = [['Base', 'Front Filename', 'Back Filename', 'Front URL', 'Back URL']];
-  const bases = Object.keys(pairs).sort();
-  let complete = 0, frontOnly = 0, backOnly = 0;
+  const end = (END_NUMBER && END_NUMBER >= start) ? END_NUMBER : maxNum;
 
-  bases.forEach(function (base) {
-    const p = pairs[base];
+  const BG_OK = '#d9ead3', BG_BAD = '#f4cccc', BG_WARN = '#fce5cd';
+  const rows = [['Status', 'Base', 'Front Filename', 'Back Filename', 'Front URL', 'Back URL']];
+  const bg = []; // one [color] per data row, aligned with rows[1..]
+  let ok = 0, missBack = 0, missFront = 0, missCard = 0;
+
+  for (let n = start; n <= end; n++) {
+    const p = seq[n] || { front: null, back: null };
     const hasF = !!p.front, hasB = !!p.back;
 
-    if (hasF && hasB) complete++;
-    else if (hasF) frontOnly++;
-    else backOnly++;
-
-    if (!INCLUDE_UNMATCHED && !(hasF && hasB)) return;
+    let status, color;
+    if (hasF && hasB)      { status = '✅ OK';            color = BG_OK;  ok++; }
+    else if (hasF)         { status = '❌ Missing back';  color = BG_BAD; missBack++; }
+    else if (hasB)         { status = '❌ Missing front'; color = BG_BAD; missFront++; }
+    else                   { status = '❌ Missing card';  color = BG_BAD; missCard++; }
 
     rows.push([
-      base,
+      status,
+      prefix + pad(n, width),
       hasF ? p.front.name : '',
       hasB ? p.back.name : '',
       hasF ? driveUrl(p.front.id) : '',
       hasB ? driveUrl(p.back.id) : ''
     ]);
+    bg.push([color]);
+  }
+
+  // Files numbered before the declared first card (shouldn't normally happen).
+  const beforeKeys = Object.keys(beforeStart).map(Number).sort(function (a, b) { return a - b; });
+  beforeKeys.forEach(function (n) {
+    const p = beforeStart[n];
+    rows.push([
+      '⚠️ Before first card',
+      prefix + pad(n, width),
+      p.front ? p.front.name : '',
+      p.back ? p.back.name : '',
+      p.front ? driveUrl(p.front.id) : '',
+      p.back ? driveUrl(p.back.id) : ''
+    ]);
+    bg.push([BG_WARN]);
   });
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getActiveSheet();
-  sheet.clearContents();
+  sheet.clear(); // wipe old values AND stale row colors from a previous run
   sheet.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
+  sheet.getRange(1, 1, 1, rows[0].length).setFontWeight('bold');
   sheet.setFrozenRows(1);
+  if (bg.length) sheet.getRange(2, 1, bg.length, 1).setBackgrounds(bg);
 
+  const problems = missCard + missFront + missBack;
   const summary =
-    complete + ' complete pairs · ' +
-    frontOnly + ' front-only · ' +
-    backOnly + ' back-only · ' +
-    skipped + ' skipped (name not *[AaBb].jpg) · ' +
-    dupes + ' duplicate sides. Output on "' + sheet.getName() + '".';
+    'Sequence ' + start + '–' + end + ': ' +
+    ok + ' OK · ' +
+    missCard + ' missing card · ' +
+    missFront + ' missing front · ' +
+    missBack + ' missing back' +
+    (beforeKeys.length ? ' · ' + beforeKeys.length + ' before first' : '') +
+    (skipped ? ' · ' + skipped + ' skipped (bad name)' : '') +
+    (otherPrefix ? ' · ' + otherPrefix + ' other prefix' : '') +
+    (dupes ? ' · ' + dupes + ' dup sides' : '') + '.';
   Logger.log(summary);
-  try { ss.toast(summary, 'build-drive-links', 12); } catch (e) { /* toast only works when bound to a Sheet */ }
+  try {
+    ss.toast(summary, problems ? ('⚠️ ' + problems + ' problem(s)') : '✅ All OK', 15);
+  } catch (e) { /* toast only works when bound to a Sheet */ }
+}
+
+/**
+ * Parses <prefix><number><side>.jpg|.jpeg (side A/a=front, B/b=back).
+ * Returns { prefix, num, width, side:'a'|'b' } or null if it doesn't match.
+ * The number is the digit run immediately before the side letter, so its
+ * length gives the zero-pad width and its value gives the sequence position.
+ */
+function parseName(name) {
+  const m = String(name).match(/^(.*?)(\d+)([ab])\.jpe?g$/i);
+  if (!m) return null;
+  return { prefix: m[1], num: parseInt(m[2], 10), width: m[2].length, side: m[3].toLowerCase() };
+}
+
+/** Left-pads a number with zeros to at least `width` digits (never truncates). */
+function pad(n, width) {
+  let s = String(n);
+  while (s.length < width) s = '0' + s;
+  return s;
 }
 
 /**
