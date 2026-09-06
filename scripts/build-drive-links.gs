@@ -15,10 +15,12 @@
  *   how you catch gaps instead of ending up with silently-missing lines.
  *
  *   Status column (col A), color-coded:
- *     ✅ OK             front and back both present
- *     ❌ Missing back   front present, back absent
- *     ❌ Missing front  back present, front absent
- *     ❌ Missing card   neither side present for that number in the sequence
+ *     ✅ OK                  front and back both present
+ *     ❌ Missing back        front present, back absent
+ *     ❌ Missing front       back present, front absent
+ *     ❌ Base only (no A/B)  a <prefix><number>.jpg exists but has no A/B sides
+ *                            (its link is placed in the Front columns for review)
+ *     ❌ Missing card        nothing at all for that number in the sequence
  *
  *   The Front URL / Back URL columns are what you map to "File 1" (front) and
  *   "File 2" (back) on metadb's "Configure Field Settings" screen when you
@@ -75,8 +77,11 @@
  *     card(s) are entirely missing, the script can't know they should exist —
  *     if you know the true last number, set END_NUMBER below to force it.
  *   - Only files DIRECTLY in the folder are scanned (not subfolders).
- *   - Files whose names don't end in <number>[AaBb].jpg/.jpeg, or whose prefix
- *     differs from FIRST_FILENAME's, are skipped and counted in the summary.
+ *   - A file named <prefix><number>.jpg with no A/B side is recognized as a
+ *     "base only" file (not skipped) and flagged so you can tell it apart from
+ *     a number that is truly absent.
+ *   - Files whose names don't end in <number>[AaBb].jpg/.jpeg or <number>.jpg,
+ *     or whose prefix differs from FIRST_FILENAME's, are skipped and counted.
  *   - Files numbered BEFORE the first card are appended at the bottom flagged
  *     "⚠️ Before first card" so nothing is hidden.
  *   - Generating a link does NOT change sharing/permissions. metadb fetches the
@@ -147,8 +152,8 @@ function buildDriveLinks() {
     const bucket = info.num < start ? beforeStart : seq;
     if (info.num >= start && info.num > maxNum) maxNum = info.num;
 
-    if (!bucket[info.num]) bucket[info.num] = { front: null, back: null };
-    const slot = info.side === 'a' ? 'front' : 'back';
+    if (!bucket[info.num]) bucket[info.num] = { front: null, back: null, base: null };
+    const slot = info.side === 'a' ? 'front' : (info.side === 'b' ? 'back' : 'base');
     if (bucket[info.num][slot]) {
       dupes++;
       Logger.log('WARNING: duplicate ' + slot + ' for number ' + info.num + ': ' + name +
@@ -160,27 +165,33 @@ function buildDriveLinks() {
 
   const end = (END_NUMBER && END_NUMBER >= start) ? END_NUMBER : maxNum;
 
-  const BG_OK = '#d9ead3', BG_BAD = '#f4cccc', BG_WARN = '#fce5cd';
+  const BG_OK = '#d9ead3', BG_BAD = '#f4cccc', BG_BASE = '#fff2cc', BG_WARN = '#fce5cd';
   const rows = [['Status', 'Base', 'Front Filename', 'Back Filename', 'Front URL', 'Back URL']];
   const bg = []; // one [color] per data row, aligned with rows[1..]
-  let ok = 0, missBack = 0, missFront = 0, missCard = 0;
+  let ok = 0, missBack = 0, missFront = 0, missCard = 0, baseOnly = 0;
 
   for (let n = start; n <= end; n++) {
-    const p = seq[n] || { front: null, back: null };
-    const hasF = !!p.front, hasB = !!p.back;
+    const p = seq[n] || { front: null, back: null, base: null };
+    const hasF = !!p.front, hasB = !!p.back, hasBase = !!p.base;
 
+    // Front columns normally hold the A-side; for a base-only file (no A/B) we
+    // surface that single image in the Front columns so its link is reachable.
     let status, color;
-    if (hasF && hasB)      { status = '✅ OK';            color = BG_OK;  ok++; }
-    else if (hasF)         { status = '❌ Missing back';  color = BG_BAD; missBack++; }
-    else if (hasB)         { status = '❌ Missing front'; color = BG_BAD; missFront++; }
-    else                   { status = '❌ Missing card';  color = BG_BAD; missCard++; }
+    let frontName = hasF ? p.front.name : '';
+    let frontUrl = hasF ? driveUrl(p.front.id) : '';
+    if (hasF && hasB)  { status = '✅ OK';            color = BG_OK;   ok++; }
+    else if (hasF)     { status = '❌ Missing back';  color = BG_BAD;  missBack++; }
+    else if (hasB)     { status = '❌ Missing front'; color = BG_BAD;  missFront++; }
+    else if (hasBase)  { status = '❌ Base only (no A/B)'; color = BG_BASE; baseOnly++;
+                         frontName = p.base.name; frontUrl = driveUrl(p.base.id); }
+    else               { status = '❌ Missing card';  color = BG_BAD;  missCard++; }
 
     rows.push([
       status,
       prefix + pad(n, width),
-      hasF ? p.front.name : '',
+      frontName,
       hasB ? p.back.name : '',
-      hasF ? driveUrl(p.front.id) : '',
+      frontUrl,
       hasB ? driveUrl(p.back.id) : ''
     ]);
     bg.push([color]);
@@ -190,12 +201,13 @@ function buildDriveLinks() {
   const beforeKeys = Object.keys(beforeStart).map(Number).sort(function (a, b) { return a - b; });
   beforeKeys.forEach(function (n) {
     const p = beforeStart[n];
+    const f = p.front || p.base; // fall back to a base-only file if that's all there is
     rows.push([
       '⚠️ Before first card',
       prefix + pad(n, width),
-      p.front ? p.front.name : '',
+      f ? f.name : '',
       p.back ? p.back.name : '',
-      p.front ? driveUrl(p.front.id) : '',
+      f ? driveUrl(f.id) : '',
       p.back ? driveUrl(p.back.id) : ''
     ]);
     bg.push([BG_WARN]);
@@ -209,11 +221,12 @@ function buildDriveLinks() {
   sheet.setFrozenRows(1);
   if (bg.length) sheet.getRange(2, 1, bg.length, 1).setBackgrounds(bg);
 
-  const problems = missCard + missFront + missBack;
+  const problems = missCard + missFront + missBack + baseOnly;
   const summary =
     'Sequence ' + start + '–' + end + ': ' +
     ok + ' OK · ' +
     missCard + ' missing card · ' +
+    baseOnly + ' base only · ' +
     missFront + ' missing front · ' +
     missBack + ' missing back' +
     (beforeKeys.length ? ' · ' + beforeKeys.length + ' before first' : '') +
@@ -233,9 +246,14 @@ function buildDriveLinks() {
  * length gives the zero-pad width and its value gives the sequence position.
  */
 function parseName(name) {
-  const m = String(name).match(/^(.*?)(\d+)([ab])\.jpe?g$/i);
-  if (!m) return null;
-  return { prefix: m[1], num: parseInt(m[2], 10), width: m[2].length, side: m[3].toLowerCase() };
+  const s = String(name);
+  // Front/back:  <prefix><number>A|B.jpg  (side letter + extension case-insensitive)
+  let m = s.match(/^(.*?)(\d+)([ab])\.jpe?g$/i);
+  if (m) return { prefix: m[1], num: parseInt(m[2], 10), width: m[2].length, side: m[3].toLowerCase() };
+  // Base only (no side letter):  <prefix><number>.jpg
+  m = s.match(/^(.*?)(\d+)\.jpe?g$/i);
+  if (m) return { prefix: m[1], num: parseInt(m[2], 10), width: m[2].length, side: null };
+  return null;
 }
 
 /** Left-pads a number with zeros to at least `width` digits (never truncates). */
