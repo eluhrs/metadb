@@ -22,6 +22,12 @@
  *                            (its link is placed in the Front columns for review)
  *     ❌ Missing card        nothing at all for that number in the sequence
  *
+ *   Files that can't be placed in the sequence are appended at the bottom for
+ *   review (not sequence positions), flagged in orange:
+ *     ⚠️ Before first card   numbered below the first card's number
+ *     ⚠️ Unrecognized name   name doesn't parse as <prefix><number>[A/B].jpg
+ *     ⚠️ Wrong prefix        parses, but prefix differs from FIRST_FILENAME's
+ *
  *   The Front URL / Back URL columns are what you map to "File 1" (front) and
  *   "File 2" (back) on metadb's "Configure Field Settings" screen when you
  *   ingest the collection. The URL format below is the one metadb's image
@@ -80,8 +86,10 @@
  *   - A file named <prefix><number>.jpg with no A/B side is recognized as a
  *     "base only" file (not skipped) and flagged so you can tell it apart from
  *     a number that is truly absent.
- *   - Files whose names don't end in <number>[AaBb].jpg/.jpeg or <number>.jpg,
- *     or whose prefix differs from FIRST_FILENAME's, are skipped and counted.
+ *   - Files that don't fit the sequence — a name that doesn't parse, or a prefix
+ *     that differs from FIRST_FILENAME's — are appended at the bottom flagged
+ *     "⚠️ Unrecognized name" / "⚠️ Wrong prefix" (with their link), so a
+ *     mis-named card that belongs in the run isn't invisible.
  *   - Files numbered BEFORE the first card are appended at the bottom flagged
  *     "⚠️ Before first card" so nothing is hidden.
  *   - Generating a link does NOT change sharing/permissions. metadb fetches the
@@ -139,6 +147,7 @@ function buildDriveLinks() {
   // numeric n -> { front: {name,id}|null, back: {name,id}|null }
   const seq = {};
   const beforeStart = {}; // n < start, surfaced separately
+  const unrecognized = []; // files that don't fit the sequence at all, surfaced separately
   let maxNum = start, skipped = 0, otherPrefix = 0, dupes = 0;
 
   while (files.hasNext()) {
@@ -146,8 +155,18 @@ function buildDriveLinks() {
     const name = file.getName();
 
     const info = parseName(name);
-    if (!info) { skipped++; Logger.log('Skipped (no <number>[A|B].jpg): ' + name); continue; }
-    if (info.prefix !== prefix) { otherPrefix++; Logger.log('Skipped (prefix != "' + prefix + '"): ' + name); continue; }
+    if (!info) {
+      skipped++;
+      unrecognized.push({ name: name, id: file.getId(), reason: 'Unrecognized name' });
+      Logger.log('Unrecognized name (no <number>[A|B].jpg): ' + name);
+      continue;
+    }
+    if (info.prefix !== prefix) {
+      otherPrefix++;
+      unrecognized.push({ name: name, id: file.getId(), reason: 'Wrong prefix' });
+      Logger.log('Wrong prefix (expected "' + prefix + '"): ' + name);
+      continue;
+    }
 
     const bucket = info.num < start ? beforeStart : seq;
     if (info.num >= start && info.num > maxNum) maxNum = info.num;
@@ -213,6 +232,14 @@ function buildDriveLinks() {
     bg.push([BG_WARN]);
   });
 
+  // Files that don't fit the sequence at all (bad name or wrong prefix). They
+  // can't be placed at a number, so list them at the bottom (with link) for
+  // review — a mis-named card that belongs in the run must not be invisible.
+  unrecognized.forEach(function (u) {
+    rows.push(['⚠️ ' + u.reason, '', u.name, '', driveUrl(u.id), '']);
+    bg.push([BG_WARN]);
+  });
+
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getActiveSheet();
   sheet.clear(); // wipe old values AND stale row colors from a previous run
@@ -221,7 +248,7 @@ function buildDriveLinks() {
   sheet.setFrozenRows(1);
   if (bg.length) sheet.getRange(2, 1, bg.length, 1).setBackgrounds(bg);
 
-  const problems = missCard + missFront + missBack + baseOnly;
+  const problems = missCard + missFront + missBack + baseOnly + unrecognized.length;
   const summary =
     'Sequence ' + start + '–' + end + ': ' +
     ok + ' OK · ' +
@@ -230,8 +257,8 @@ function buildDriveLinks() {
     missFront + ' missing front · ' +
     missBack + ' missing back' +
     (beforeKeys.length ? ' · ' + beforeKeys.length + ' before first' : '') +
-    (skipped ? ' · ' + skipped + ' skipped (bad name)' : '') +
-    (otherPrefix ? ' · ' + otherPrefix + ' other prefix' : '') +
+    (skipped ? ' · ' + skipped + ' unrecognized name' : '') +
+    (otherPrefix ? ' · ' + otherPrefix + ' wrong prefix' : '') +
     (dupes ? ' · ' + dupes + ' dup sides' : '') + '.';
   Logger.log(summary);
   try {
