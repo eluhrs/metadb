@@ -19,7 +19,8 @@
  *     ❌ Missing back        front present, back absent
  *     ❌ Missing front       back present, front absent
  *     ❌ Base only (no A/B)  a <prefix><number>.jpg exists but has no A/B sides
- *                            (its link is placed in the Front columns for review)
+ *                            (its LINK — not filename — goes in Front URL; the
+ *                             Base column already shows its name)
  *     ❌ Missing card        nothing at all for that number in the sequence
  *
  *   Files that can't be placed in the sequence are appended at the bottom for
@@ -193,8 +194,9 @@ function buildDriveLinks() {
     const p = seq[n] || { front: null, back: null, base: null };
     const hasF = !!p.front, hasB = !!p.back, hasBase = !!p.base;
 
-    // Front columns normally hold the A-side; for a base-only file (no A/B) we
-    // surface that single image in the Front columns so its link is reachable.
+    // Front columns hold the A-side. For a base-only file (no A/B) we put only
+    // its LINK in Front URL — the filename is omitted since it isn't really a
+    // "front" and the Base column already shows its name.
     let status, color;
     let frontName = hasF ? p.front.name : '';
     let frontUrl = hasF ? driveUrl(p.front.id) : '';
@@ -202,7 +204,7 @@ function buildDriveLinks() {
     else if (hasF)     { status = '❌ Missing back';  color = BG_BAD;  missBack++; }
     else if (hasB)     { status = '❌ Missing front'; color = BG_BAD;  missFront++; }
     else if (hasBase)  { status = '❌ Base only (no A/B)'; color = BG_BASE; baseOnly++;
-                         frontName = p.base.name; frontUrl = driveUrl(p.base.id); }
+                         frontUrl = driveUrl(p.base.id); } // link only; filename omitted
     else               { status = '❌ Missing card';  color = BG_BAD;  missCard++; }
 
     rows.push([
@@ -224,7 +226,7 @@ function buildDriveLinks() {
     rows.push([
       '⚠️ Before first card',
       prefix + pad(n, width),
-      f ? f.name : '',
+      p.front ? p.front.name : '', // omit filename for a base-only file (same rule as above)
       p.back ? p.back.name : '',
       f ? driveUrl(f.id) : '',
       p.back ? driveUrl(p.back.id) : ''
