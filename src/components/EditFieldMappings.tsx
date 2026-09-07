@@ -617,8 +617,8 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                   <tr>
                     <th className="px-2 py-3 w-8 text-center font-semibold text-gray-400">Move</th>
                     <th className="px-3 py-3 font-semibold text-gray-600 min-w-[340px]">Field Name</th>
-                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-l border-r border-gray-200" title="Primary Image URI">File 1</th>
-                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Secondary Image URI">File 2</th>
+                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-l border-r border-gray-200" title="Primary Image URI">Image 1</th>
+                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Secondary Image URI">Image 2</th>
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Long Text Area">Long</th>
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200">Bulk</th>
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Lock Manual Input">Lock</th>
@@ -649,8 +649,8 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                   <tr>
                     <th className="px-2 py-3 w-8 text-center font-semibold text-gray-400">Move</th>
                     <th className="px-3 py-3 font-semibold text-gray-600 min-w-[280px]">Field Name</th>
-                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-l border-r border-gray-200" title="Administrative Fields Cannot Act As Files">File 1</th>
-                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Administrative Fields Cannot Act As Files">File 2</th>
+                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-l border-r border-gray-200" title="Administrative Fields Cannot Act As Files">Image 1</th>
+                    <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Administrative Fields Cannot Act As Files">Image 2</th>
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200">Long</th>
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200">Bulk</th>
                     <th className="px-2 py-3 w-20 min-w-[5rem] font-semibold text-center text-gray-600 border-r border-gray-200" title="Lock Manual Input">Lock</th>
@@ -887,7 +887,8 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                   value={activeField?.aiPrompt || ''}
                   onChange={(e) => updateField(activeField?.id || '', { aiPrompt: e.target.value })}
                 />
-                <span className="text-[10px] text-blue-600 font-medium">Use {'{{field_name}}'} or {'{{image}}'} variables within AI prompts</span>
+                <span className="text-[10px] text-blue-600 font-medium block">Use {'{{field_name}}'} variables within AI prompts</span>
+                <span className="text-[10px] text-gray-500 font-medium block">Images: {'{{image}}'}, {'{{image1}}'} or {'{{front}}'} for Image 1 &middot; {'{{image2}}'} or {'{{back}}'} for Image 2</span>
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1">AI Model Selection</label>

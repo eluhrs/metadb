@@ -24,10 +24,14 @@ services:
       - GEMINI_MODELS=${GEMINI_MODELS}
       - ADMIN_EMAIL=${ADMIN_EMAIL}
       - GOOGLE_SERVICE_ACCOUNT_CREDENTIALS=${GOOGLE_SERVICE_ACCOUNT_CREDENTIALS}
+      # Original Drive bytes, read by the image proxy and by {{image}} AI prompts.
+      # Persisted on the host so it survives redeploys, unlike the /tmp default.
+      - IMAGE_CACHE_DIR=/var/cache/metadb/images
     depends_on:
       - db
     volumes:
       - /opt/metadb/images:/app/.next/cache/tiles
+      - /opt/metadb/blobs:/var/cache/metadb/images
 
 volumes:
   metadb_prod_data:

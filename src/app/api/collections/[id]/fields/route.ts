@@ -3,9 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
-import { google } from "googleapis";
-import fs from 'fs';
-import path from 'path';
+import { hasCachedBlob, writeCachedBlob } from "@/lib/imageCache";
 
 export async function PUT(req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
@@ -84,30 +82,17 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
 
           if (fileId) {
              try {
-               const cacheDir = `/tmp/metadb-images`;
-               if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-               const cachedFilePath = path.join(cacheDir, `${fileId}.blob`);
-
                // Check if it's currently missing from global local storage
-               if (!fs.existsSync(cachedFilePath)) {
-                  // Securely use the live PUT action's session to proactively retrieve the raw file!
-                  const accessToken = (session as any).accessToken;
-                  if (accessToken) {
-                       const auth = new google.auth.OAuth2();
-                       auth.setCredentials({ access_token: accessToken });
-                       const drive = google.drive({ version: 'v3', auth });
+               if (!hasCachedBlob(fileId)) {
+                  // Service account, so seeding does not depend on the caller's OAuth
+                  // token still being valid.
+                  const { getDriveClient } = await import('@/lib/googleAuth');
+                  const drive = await getDriveClient();
 
-                       const response = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'arraybuffer' });
+                  const response = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'arraybuffer' });
 
-                       const chunks = [];
-                       for await (const chunk of response.data as any) {
-                          chunks.push(chunk);
-                       }
-                       
-                       // Lock the binary strictly onto disk so `<Image>` backend worker can immediately detect and compress it.
-                       const buffer = Buffer.concat(chunks);
-                       await fs.promises.writeFile(cachedFilePath, buffer);
-                  }
+                  // Lock the binary strictly onto disk so `<Image>` backend worker can immediately detect and compress it.
+                  writeCachedBlob(fileId, Buffer.from(response.data as ArrayBuffer));
                }
              } catch(e) {
                 console.error("Proactive thumbnail seeding failed invisibly (Google API rejected or timeout):", e);

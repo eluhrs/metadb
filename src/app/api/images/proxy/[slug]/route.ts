@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { google } from "googleapis";
-
-import fs from 'fs';
-import path from 'path';
+import { readCachedBlob, writeCachedBlob } from "@/lib/imageCache";
 
 export async function GET(req: Request, props: { params: Promise<{ slug: string }> }) {
   try {
@@ -14,15 +11,10 @@ export async function GET(req: Request, props: { params: Promise<{ slug: string 
     if (!fileId) return new NextResponse("Missing file ID", { status: 400 });
 
     // Highly Aggressive Caching Layer
-    const cacheDir = `/tmp/metadb-images`;
-    if (!fs.existsSync(cacheDir)) {
-      fs.mkdirSync(cacheDir, { recursive: true });
-    }
-    const cachedFilePath = path.join(cacheDir, `${fileId}.blob`);
+    const fileBuffer = await readCachedBlob(fileId);
 
-    if (fs.existsSync(cachedFilePath)) {
+    if (fileBuffer) {
       // Return instantly from lightning-fast local NVMe/SSD cache!
-      const fileBuffer = await fs.promises.readFile(cachedFilePath);
       const headers = new Headers();
       headers.set("Content-Type", "image/jpeg"); // Drive images are safely assumed as JPEGs for OSD
       headers.set("Cache-Control", "public, max-age=31536000, immutable");
@@ -42,7 +34,7 @@ export async function GET(req: Request, props: { params: Promise<{ slug: string 
     const buffer = Buffer.from(response.data as ArrayBuffer);
 
     // Save binary buffer asynchronously to local filesystem to instantly cache future requests
-    fs.promises.writeFile(cachedFilePath, buffer).catch(console.error);
+    writeCachedBlob(fileId, buffer);
 
     const headers = new Headers();
     headers.set("Content-Type", response.headers["content-type"] || "image/jpeg");

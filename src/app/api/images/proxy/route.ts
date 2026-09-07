@@ -2,10 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { google } from "googleapis";
-
-import fs from 'fs';
-import path from 'path';
+import { readCachedBlob, writeCachedBlob } from "@/lib/imageCache";
 
 export async function GET(req: Request) {
   try {
@@ -23,15 +20,10 @@ export async function GET(req: Request) {
       if (!fileId) return new NextResponse("Invalid Google Drive URL structure", { status: 400 });
 
       // Highly Aggressive Caching Layer
-      const cacheDir = `/tmp/metadb-images`;
-      if (!fs.existsSync(cacheDir)) {
-        fs.mkdirSync(cacheDir, { recursive: true });
-      }
-      const cachedFilePath = path.join(cacheDir, `${fileId}.blob`);
+      const fileBuffer = await readCachedBlob(fileId);
 
-      if (fs.existsSync(cachedFilePath)) {
+      if (fileBuffer) {
         // Return instantly from lightning-fast local NVMe/SSD cache!
-        const fileBuffer = await fs.promises.readFile(cachedFilePath);
         const headers = new Headers();
         headers.set("Content-Type", "image/jpeg"); // Drive images are safely assumed as JPEGs for OSD
         headers.set("Cache-Control", "public, max-age=31536000, immutable");
@@ -52,7 +44,7 @@ export async function GET(req: Request) {
       const buffer = Buffer.from(response.data as ArrayBuffer);
 
       // Instantly cache to NVMe in background thread
-      fs.promises.writeFile(cachedFilePath, buffer).catch(e => console.error("Cache Write Error", e));
+      writeCachedBlob(fileId, buffer);
 
       const headers = new Headers();
       headers.set("Content-Type", response.headers["content-type"] || "image/jpeg");

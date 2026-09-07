@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import fs from 'fs';
 import path from 'path';
+import { hasCachedBlob, writeCachedBlob } from "@/lib/imageCache";
 
 async function getMetrics(collectionId: string, fieldId?: string | null) {
     let fileFields;
@@ -77,10 +78,13 @@ async function getMetrics(collectionId: string, fieldId?: string | null) {
       }
     }
 
+    // A file counts as cached only when BOTH artifacts exist: the DZI pyramid the viewer
+    // reads, and the original blob that image prompts read. Collections tiled before the
+    // blob cache existed re-fetch once, then stay done.
     const missingIds: string[] = [];
     for (const fileId of googleDriveIds) {
-      const cachedFilePath = path.join(tilesDir, `${fileId}.dzi`);
-      if (!fs.existsSync(cachedFilePath)) {
+      const hasTiles = fs.existsSync(path.join(tilesDir, `${fileId}.dzi`));
+      if (!hasTiles || !hasCachedBlob(fileId)) {
         missingIds.push(fileId);
       }
     }
@@ -142,13 +146,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         }, { responseType: 'arraybuffer' });
 
         const buffer = Buffer.from(response.data as ArrayBuffer);
-        
+
+        // Keep the untouched original so {{image}} prompts and the image proxy can serve
+        // it without going back out to Drive.
+        writeCachedBlob(fileId, buffer);
+
         const dziOutputPath = path.join(tilesDir, fileId);
-        await sharp(buffer)
-          .rotate() // Auto-orients the image based on EXIF before tiling
-          .tile({ size: 256 })
-          .toFile(dziOutputPath);
-          
+        if (!fs.existsSync(`${dziOutputPath}.dzi`)) {
+          await sharp(buffer)
+            .rotate() // Auto-orients the image based on EXIF before tiling
+            .tile({ size: 256 })
+            .toFile(dziOutputPath);
+        }
+
         newlyCached++;
       } catch (err) {
         console.error(`Failed to ingest and tile ${fileId}:`, err);
