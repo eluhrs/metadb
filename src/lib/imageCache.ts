@@ -43,3 +43,16 @@ export function writeCachedBlob(fileId: string, buffer: Buffer): void {
       fs.promises.unlink(tmpPath).catch(() => {});
     });
 }
+
+// Drive URLs appear either as /d/<id>/... or with an ?id=<id> query parameter.
+export function extractDriveFileId(uri: string): string | null {
+  const match = uri.match(/\/d\/([a-zA-Z0-9-_]+)/) || uri.match(/id=([a-zA-Z0-9-_]+)/);
+  return match ? match[1] : null;
+}
+
+export async function deleteCachedBlob(fileId: string): Promise<boolean> {
+  const filePath = cachedBlobPath(fileId);
+  if (!fs.existsSync(filePath)) return false;
+  await fs.promises.unlink(filePath);
+  return true;
+}
