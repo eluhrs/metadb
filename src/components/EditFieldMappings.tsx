@@ -386,12 +386,30 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
     setFields(prev => prev.filter(f => f.id !== id));
   };
 
-  const saveMappings = async (redirect = true) => {
+  // Same as updateField, but returns the resulting array so a handler that edits and
+  // saves in one go can hand the new state straight to saveMappings instead of reading
+  // the stale closure value.
+  const applyFieldUpdate = (id: string, updates: Partial<FieldDefinition>) => {
+    const next = fields.map(f => f.id === id ? { ...f, ...updates } : f);
+    setFields(next);
+    if (activeField?.id === id) setActiveField(prev => prev ? { ...prev, ...updates } : null);
+    return next;
+  };
+
+  // Modal footers persist to Postgres and close only on success, so a failed write can
+  // never look like a saved one. The page-level error banner sits behind the overlay,
+  // so each modal renders its own.
+  const saveAndClose = async (fieldsOverride?: FieldDefinition[]) => {
+    const saved = await saveMappings(false, fieldsOverride);
+    if (saved) setModalOpen(null);
+  };
+
+  const saveMappings = async (redirect = true, fieldsOverride?: FieldDefinition[]) => {
     setLoading(true);
     setError("");
     try {
       // Regenerate explicit order tracking the single flattened array state
-      const payload = fields.map((f, i) => ({ ...f, uiOrder: i }));
+      const payload = (fieldsOverride ?? fields).map((f, i) => ({ ...f, uiOrder: i }));
 
       const res = await fetch(`/api/collections/${collection.id}/fields`, {
         method: "PUT",
@@ -415,6 +433,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
 
   const handleComplexToggle = (field: FieldDefinition, type: 'ai' | 'controlled' | 'write') => {
     setActiveField(field);
+    setError(""); // Don't surface a stale failure from an earlier save in the modal.
 
     if (type === 'write') {
       setOverwriteText("");
@@ -762,12 +781,18 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
               </div>
             </div>
 
+            {error && <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded mt-4">{error}</div>}
             <div className="flex justify-between items-center mt-6">
-              <button onClick={() => {
-                updateField(activeField?.id || '', { isControlled: false, controlledVocabList: null, controlledMulti: false, controlledAdds: false, controlledDrop: false });
-                setModalOpen(null);
-              }} className="text-red-500 hover:text-red-700 text-sm font-medium">Disable Vocabulary</button>
-              <button onClick={() => setModalOpen(null)} className="bg-slate-800 text-white px-6 py-2 rounded text-sm hover:bg-slate-700 font-bold shadow-sm">Save Vocabulary</button>
+              <button
+                disabled={loading}
+                onClick={() => saveAndClose(applyFieldUpdate(activeField?.id || '', { isControlled: false, controlledVocabList: null, controlledMulti: false, controlledAdds: false, controlledDrop: false }))}
+                className="text-red-500 hover:text-red-700 text-sm font-medium disabled:opacity-50"
+              >Disable Vocabulary</button>
+              <button
+                disabled={loading}
+                onClick={() => saveAndClose()}
+                className="bg-slate-800 text-white px-6 py-2 rounded text-sm hover:bg-slate-700 font-bold shadow-sm disabled:opacity-50"
+              >{loading ? "Saving..." : "Save Vocabulary"}</button>
             </div>
           </div>
         </div>
@@ -903,12 +928,18 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                 </select>
               </div>
             </div>
+            {error && <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded mb-3">{error}</div>}
             <div className="flex justify-between items-center mt-2">
-              <button onClick={() => {
-                updateField(activeField?.id || '', { aiPrompt: null });
-                setModalOpen(null);
-              }} className="text-red-500 hover:text-red-700 text-sm font-medium">Remove AI Prompt</button>
-              <button onClick={() => setModalOpen(null)} className="bg-slate-800 text-white px-6 py-2 rounded text-sm hover:bg-slate-700 font-bold shadow-sm">Save Settings</button>
+              <button
+                disabled={loading}
+                onClick={() => saveAndClose(applyFieldUpdate(activeField?.id || '', { aiPrompt: null }))}
+                className="text-red-500 hover:text-red-700 text-sm font-medium disabled:opacity-50"
+              >Remove AI Prompt</button>
+              <button
+                disabled={loading}
+                onClick={() => saveAndClose()}
+                className="bg-slate-800 text-white px-6 py-2 rounded text-sm hover:bg-slate-700 font-bold shadow-sm disabled:opacity-50"
+              >{loading ? "Saving..." : "Save Settings"}</button>
             </div>
           </div>
         </div>
