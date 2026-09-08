@@ -10,6 +10,11 @@ const FRONT_TOKENS = ["image", "image1", "front"];
 const BACK_TOKENS = ["image2", "back"];
 const RESERVED_REGEX = /\{\{\s*(image|image1|image2|front|back)\s*\}\}/gi;
 
+// Cataloging prompts are extraction tasks -- read the card, return the value -- so the
+// same card should give the same answer every run. Google's default is 1.0. Hardcoded
+// for now; move it next to the model dropdown if it ever needs to vary per field.
+const AI_TEMPERATURE = 0;
+
 // {{image}} / {{image1}} / {{image2}} are always images. {{front}} and {{back}} are
 // plausible column names in a card collection, so they yield to a real field of that
 // name — otherwise adding these aliases would silently repoint existing prompts.
@@ -186,6 +191,7 @@ export async function POST(req: Request) {
     const response = await ai.models.generateContent({
         model: targetField.aiModel,
         contents: contents,
+        config: { temperature: AI_TEMPERATURE },
     });
 
     return NextResponse.json({ text: response.text });
