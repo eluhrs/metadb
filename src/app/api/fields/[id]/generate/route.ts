@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isAiField } from "@/lib/aiGenerate";
-import { getFieldMetrics, loadFieldContext, runBatch } from "@/lib/aiRuns";
+import { getFieldMetrics, getOpenRun, loadFieldContext, startRun } from "@/lib/aiRuns";
 
 // Batch AI fill for one field.
 //
@@ -11,8 +11,9 @@ import { getFieldMetrics, loadFieldContext, runBatch } from "@/lib/aiRuns";
 //      populated without running anything. ?deep=1 adds the preflight checks (image cache
 //      coverage, upstream-dependency warnings), which are too expensive to run for every
 //      field on page load.
-// POST processes one slice and returns progress. The client polls it until `complete`,
-//      the same protocol the image pre-cache uses -- no request has to outlive a batch.
+// POST starts the run on the server and returns immediately. The work continues in this
+//      process whether or not anyone is watching, so closing the laptop no longer stops
+//      it; the page just polls GET to follow along.
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -32,7 +33,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       take: 10,
     });
 
-    return NextResponse.json({ ...metrics, runs });
+    const open = await getOpenRun(id);
+
+    return NextResponse.json({ ...metrics, runs, open });
   } catch (error: any) {
     console.error("AI batch metrics error:", error);
     return new NextResponse(error.message || "Failed to read field metrics", { status: 500 });
@@ -54,7 +57,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return new NextResponse("Field has no AI prompt configured", { status: 400 });
     }
 
-    const progress = await runBatch(ctx, mode);
+    const progress = await startRun(ctx, mode);
     return NextResponse.json(progress);
   } catch (error: any) {
     console.error("AI batch execution error:", error);

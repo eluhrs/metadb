@@ -30,6 +30,10 @@ const CALL_TIMEOUT_MS = Number(process.env.AI_CALL_TIMEOUT_MS || 120_000);
 const MAX_ATTEMPTS = Number(process.env.AI_MAX_ATTEMPTS || 4);
 const BASE_BACKOFF_MS = 1_000;
 
+// Point the SDK somewhere other than Google -- a corporate proxy, or a local stub when
+// exercising the batch runner without spending real calls. Unset uses the real endpoint.
+const GEMINI_BASE_URL = process.env.GEMINI_BASE_URL || undefined;
+
 // Longest edge, in pixels, that an image is downscaled to before it is sent. Unset means
 // send the original bytes, which is what the manual button has always done. Gemini does
 // not need a 4000px scan to read a date stamp, so setting this cuts upload time and cost
@@ -255,7 +259,10 @@ export async function generateForRecord(record: any, field: any): Promise<Genera
     return { ok: false, error: `Image fetch failed: ${e.message || e}`, retryable: true, attempts: 0 };
   }
 
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const ai = new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    ...(GEMINI_BASE_URL ? { httpOptions: { baseUrl: GEMINI_BASE_URL } } : {}),
+  });
 
   const contents: any[] = [prompt.text];
 

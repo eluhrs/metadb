@@ -197,58 +197,70 @@ async function countEligible(ctx: FieldContext, mode: string): Promise<number> {
 }
 
 export type BatchProgress = {
-  runId: string;
+  runId: string | null;
   total: number;
   done: number;
   written: number;
   flagged: number;
   failed: number;
   complete: boolean;
+  running: boolean;
   error?: string;
 };
 
-// Runs one slice of a batch and records what it did. Resumes the field's open run when
-// there is one, so a reload picks up where the last tab left off instead of starting over.
-export async function runBatch(ctx: FieldContext, mode: string): Promise<BatchProgress> {
-  const { field } = ctx;
+// Runs execute on the server, not in the browser. The page kicks one off and then only
+// polls to watch it -- so closing the laptop, or navigating away, no longer stops the
+// work. One worker per field at a time; the map is the lock.
+//
+// This process is a single long-lived Node server (output: standalone, one container),
+// so a module-level registry is a sufficient lock. If that ever becomes more than one
+// instance, this needs a real advisory lock in Postgres instead.
+const activeWorkers = new Map<string, Promise<void>>();
 
-  let run = await prisma.generationRun.findFirst({
-    where: { fieldId: field.id, status: "RUNNING" },
+// A RUNNING row whose worker died with the container is not actually running. Anything
+// that has not recorded a result in this long is treated as abandoned and can be adopted.
+const STALE_RUN_MS = Number(process.env.AI_STALE_RUN_MS || 5 * 60 * 1000);
+
+async function progressFor(run: any, running: boolean): Promise<BatchProgress> {
+  const done = await prisma.generationResult.count({ where: { runId: run.id } });
+  return {
+    runId: run.id,
+    total: Math.max(run.total, done),
+    done,
+    written: run.written,
+    flagged: run.flagged,
+    failed: run.failed,
+    complete: run.status !== "RUNNING",
+    running,
+    error: run.error ?? undefined,
+  };
+}
+
+// The open run for a field, whether or not this process is currently working it.
+export async function getOpenRun(fieldId: string): Promise<BatchProgress | null> {
+  const run = await prisma.generationRun.findFirst({
+    where: { fieldId, status: "RUNNING" },
     orderBy: { createdAt: 'desc' },
   });
+  if (!run) return null;
 
-  if (!run) {
-    run = await prisma.generationRun.create({
-      data: {
-        fieldId: field.id,
-        collectionId: ctx.collectionId,
-        mode,
-        status: "RUNNING",
-        promptSnapshot: field.aiPrompt ?? "",
-        model: field.aiModel ?? "",
-        total: await countEligible(ctx, mode),
-      },
-    });
+  const running = activeWorkers.has(fieldId);
+  const progress = await progressFor(run, running);
+
+  // Surface an abandoned run as stalled rather than as live progress, so the UI can offer
+  // to pick it back up instead of spinning forever on a bar that will never move.
+  if (!running && Date.now() - run.updatedAt.getTime() > STALE_RUN_MS) {
+    progress.error = "Run stalled (the server restarted). Press fill to pick it up where it stopped.";
   }
+  return progress;
+}
 
+// Processes one slice: the unit of work between progress updates and cancellation checks.
+async function processOneBatch(run: any, ctx: FieldContext): Promise<{ processed: number; remaining: number }> {
+  const { field } = ctx;
   const { candidates, remaining } = await nextCandidates(run.id, ctx, run.mode, BATCH_SIZE);
 
-  if (candidates.length === 0) {
-    const finished = await prisma.generationRun.update({
-      where: { id: run.id },
-      data: { status: "COMPLETE" },
-    });
-    const done = await prisma.generationResult.count({ where: { runId: run.id } });
-    return {
-      runId: run.id,
-      total: Math.max(finished.total, done),
-      done,
-      written: finished.written,
-      flagged: finished.flagged,
-      failed: finished.failed,
-      complete: true,
-    };
-  }
+  if (candidates.length === 0) return { processed: 0, remaining: 0 };
 
   const loaded = await prisma.record.findMany({
     where: { id: { in: candidates.map(c => c.id) } },
@@ -307,7 +319,7 @@ export async function runBatch(ctx: FieldContext, mode: string): Promise<BatchPr
     });
   }
 
-  const updated = await prisma.generationRun.update({
+  await prisma.generationRun.update({
     where: { id: run.id },
     data: {
       written: { increment: written },
@@ -316,38 +328,97 @@ export async function runBatch(ctx: FieldContext, mode: string): Promise<BatchPr
     },
   });
 
-  const done = await prisma.generationResult.count({ where: { runId: run.id } });
-  const complete = remaining - candidates.length <= 0;
-
-  if (updated.written === 0 && updated.failed >= FAILURE_CIRCUIT_BREAKER) {
-    const lastError = outcomes.find(o => !o.outcome.ok);
-    const message = lastError && !lastError.outcome.ok ? lastError.outcome.error : "repeated failures";
-    await prisma.generationRun.update({
-      where: { id: run.id },
-      data: { status: "FAILED", error: message },
-    });
-    return {
-      runId: run.id, total: updated.total, done,
-      written: updated.written, flagged: updated.flagged, failed: updated.failed,
-      complete: true,
-      error: `Stopped after ${updated.failed} failures with nothing written: ${message}`,
-    };
-  }
-
-  if (complete) {
-    await prisma.generationRun.update({ where: { id: run.id }, data: { status: "COMPLETE" } });
-  }
-
-  return {
-    runId: run.id,
-    total: Math.max(updated.total, done),
-    done,
-    written: updated.written,
-    flagged: updated.flagged,
-    failed: updated.failed,
-    complete,
-  };
+  return { processed: candidates.length, remaining: remaining - candidates.length };
 }
+
+async function workerLoop(runId: string, ctx: FieldContext): Promise<void> {
+  try {
+    while (true) {
+      // Re-read every slice so a cancel from the UI takes effect within one batch.
+      const run = await prisma.generationRun.findUnique({ where: { id: runId } });
+      if (!run || run.status !== "RUNNING") return;
+
+      if (run.written === 0 && run.failed >= FAILURE_CIRCUIT_BREAKER) {
+        const last = await prisma.generationResult.findFirst({
+          where: { runId, status: "FAILED" },
+          orderBy: { createdAt: 'desc' },
+        });
+        await prisma.generationRun.update({
+          where: { id: runId },
+          data: {
+            status: "FAILED",
+            error: `Stopped after ${run.failed} failures with nothing written: ${last?.error ?? "repeated failures"}`,
+          },
+        });
+        return;
+      }
+
+      const { processed, remaining } = await processOneBatch(run, ctx);
+
+      if (processed === 0 || remaining <= 0) {
+        await prisma.generationRun.update({ where: { id: runId }, data: { status: "COMPLETE" } });
+        return;
+      }
+    }
+  } catch (e: any) {
+    console.error("AI run worker crashed:", e);
+    await prisma.generationRun.update({
+      where: { id: runId },
+      data: { status: "FAILED", error: e?.message || "Worker crashed" },
+    }).catch(() => {});
+  } finally {
+    activeWorkers.delete(ctx.field.id);
+  }
+}
+
+// Starts a run, or picks up the field's open one. Returns as soon as the work is under
+// way -- it does not wait for the run to finish.
+export async function startRun(ctx: FieldContext, mode: string): Promise<BatchProgress> {
+  const { field } = ctx;
+
+  if (activeWorkers.has(field.id)) {
+    const open = await getOpenRun(field.id);
+    if (open) return open;
+  }
+
+  let run = await prisma.generationRun.findFirst({
+    where: { fieldId: field.id, status: "RUNNING" },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (!run) {
+    run = await prisma.generationRun.create({
+      data: {
+        fieldId: field.id,
+        collectionId: ctx.collectionId,
+        mode,
+        status: "RUNNING",
+        promptSnapshot: field.aiPrompt ?? "",
+        model: field.aiModel ?? "",
+        total: await countEligible(ctx, mode),
+      },
+    });
+  }
+
+  // Deliberately not awaited: the worker outlives this request.
+  const worker = workerLoop(run.id, ctx);
+  activeWorkers.set(field.id, worker);
+
+  return progressFor(run, true);
+}
+
+export async function cancelRun(fieldId: string): Promise<boolean> {
+  const run = await prisma.generationRun.findFirst({
+    where: { fieldId, status: "RUNNING" },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (!run) return false;
+
+  // The worker notices at the top of its next slice; records already in flight finish.
+  await prisma.generationRun.update({ where: { id: run.id }, data: { status: "CANCELLED" } });
+  return true;
+}
+
 
 export type PreviewRow = {
   position: number;
@@ -454,42 +525,97 @@ export async function runPreview(
   });
 }
 
-export type RevertSummary = { reverted: number; conflicts: number };
+export type RevertSummary = { applied: number; conflicts: number; direction: "undo" | "redo" };
 
-// Undo everything a run wrote. A value that no longer matches what the run produced was
-// edited by hand afterwards, so it is left alone and reported rather than stomped.
-export async function revertRun(runId: string, fieldId: string): Promise<RevertSummary> {
+// Undo everything a run wrote -- or put it back. Both sides of every write are recorded,
+// so a revert is just the same operation pointed the other way, which makes an undo
+// itself undoable.
+//
+// Either direction skips a value that no longer matches what it expects. That is what
+// makes undo safe to press on an older run: if a later run has since overwritten those
+// records, its writes are reported as conflicts and left alone rather than clobbered.
+export async function revertRun(
+  runId: string,
+  fieldId: string,
+  direction: "undo" | "redo" = "undo"
+): Promise<RevertSummary> {
   const results = await prisma.generationResult.findMany({
     where: { runId, status: "WRITTEN" },
   });
 
-  let reverted = 0;
+  let applied = 0;
   let conflicts = 0;
 
   for (const result of results) {
-    const existing = await prisma.value.findFirst({
-      where: { recordId: result.recordId, fieldId },
-    });
+    // Undo expects to find what the run wrote and puts back what was there before.
+    // Redo expects to find the restored original and writes the run's value again.
+    const expected = direction === "undo" ? result.newValue : result.previousValue;
+    const target = direction === "undo" ? result.previousValue : result.newValue;
 
-    if (existing && existing.value !== result.newValue) {
+    const existing = await prisma.value.findFirst({ where: { recordId: result.recordId, fieldId } });
+    const current = existing ? existing.value : null;
+
+    if (current !== expected) {
       conflicts++;
       continue;
     }
 
-    if (result.previousValue === null) {
+    if (target === null) {
       if (existing) await prisma.value.delete({ where: { id: existing.id } });
     } else if (existing) {
-      await prisma.value.update({ where: { id: existing.id }, data: { value: result.previousValue } });
+      await prisma.value.update({ where: { id: existing.id }, data: { value: target } });
     } else {
-      await prisma.value.create({
-        data: { recordId: result.recordId, fieldId, value: result.previousValue },
-      });
+      await prisma.value.create({ data: { recordId: result.recordId, fieldId, value: target } });
     }
 
-    reverted++;
+    applied++;
   }
 
-  await prisma.generationRun.update({ where: { id: runId }, data: { status: "REVERTED" } });
+  await prisma.generationRun.update({
+    where: { id: runId },
+    data: { status: direction === "undo" ? "REVERTED" : "COMPLETE" },
+  });
 
-  return { reverted, conflicts };
+  return { applied, conflicts, direction };
+}
+
+export type RunResultRow = {
+  position: number | null;
+  recordId: string;
+  label: string;
+  status: string;
+  newValue: string | null;
+  error: string | null;
+};
+
+// The records behind a run's failed/flagged counts. A run that reports "1 failed" is not
+// useful until you can see which record it was.
+export async function listRunResults(
+  ctx: FieldContext,
+  runId: string,
+  status: string
+): Promise<RunResultRow[]> {
+  const { field, fieldDefs, collectionId } = ctx;
+  const labelField = labelFieldFor(fieldDefs, field.id);
+
+  const results = await prisma.generationResult.findMany({
+    where: { runId, status },
+    orderBy: { createdAt: 'asc' },
+  });
+  if (results.length === 0) return [];
+
+  // Positions come from the collection's canonical order, so they line up with the
+  // numbers shown in the dry-run preview.
+  const ordered = await orderedRecords(collectionId, labelField ? [labelField.id] : []);
+  const positions = new Map(ordered.map((r, i) => [r.id, i + 1]));
+  const labels = new Map(ordered.map(r => [r.id, labelField ? readValue(r, labelField.id) : ""]));
+
+  return results.map(r => ({
+    position: positions.get(r.recordId) ?? null,
+    recordId: r.recordId,
+    label: labels.get(r.recordId) ?? "",
+    status: r.status,
+    newValue: r.newValue,
+    error: r.error,
+  }));
 }

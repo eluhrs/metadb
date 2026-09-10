@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -336,6 +336,16 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
   const [fieldMetrics, setFieldMetrics] = useState<any>(null);
   const [revertBusy, setRevertBusy] = useState<string | null>(null);
   const [revertNotice, setRevertNotice] = useState("");
+  const [failureRows, setFailureRows] = useState<any[] | null>(null);
+  const [failureRunId, setFailureRunId] = useState<string | null>(null);
+  const [failureStatus, setFailureStatus] = useState<string>('FAILED');
+  const [showAllRuns, setShowAllRuns] = useState(false);
+
+  // Which fields already have a watcher attached, so remounts and repeated clicks do not
+  // stack up duplicate polling loops against the same run.
+  const pollingRef = useRef<Set<string>>(new Set());
+  // Read inside the watcher without making the modal a dependency of it.
+  const aiModalFieldIdRef = useRef<string | undefined>(undefined);
 
   // One entry per field, shared by both long-running per-field jobs (image pre-cache and
   // AI fill). While a job runs, done/total is that job's progress; at rest it is how much
@@ -387,25 +397,21 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
   // Drives one long job to completion by polling: each POST does a bounded slice of the
   // work and reports progress, so nothing depends on a single request surviving an hour.
   // Both the image pre-cache and the AI fill speak this protocol.
+  // The image pre-cache still works the browser-driven way: each POST does a slice and the
+  // page loops until it is done. That job is short and entirely local, so there is nothing
+  // to gain from moving it server-side.
   const runFieldJob = async (
     fieldId: string,
-    kind: 'cache' | 'fill',
     request: () => Promise<Response>,
-    adapt: (data: any) => { total: number, done: number, error?: string, complete?: boolean },
-    onComplete?: (data: any) => void
+    adapt: (data: any) => { total: number, done: number, error?: string, complete?: boolean }
   ) => {
-    // Defensively save the UI React configuration to Postgres first so they don't lose it
-    // if they walk away -- and, for a fill, because the server runs the *saved* prompt,
-    // not whatever is currently sitting in the textarea.
     const successfullySaved = await saveMappings(false);
     if (!successfullySaved) return;
 
     setJobStates(prev => ({ ...prev, [fieldId]: { active: true, total: 0, done: 0, completed: false } }));
     let isComplete = false;
     let currentTotal = 0;
-    let lastData: any = null;
 
-    // Dependable Sequential Polling Loop
     while (!isComplete) {
       try {
         const res = await request();
@@ -414,7 +420,6 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
           throw new Error(`HTTP ${res.status}: ${errorText}`);
         }
         const data = await res.json();
-        lastData = data;
         const progress = adapt(data);
 
         currentTotal = progress.total;
@@ -437,46 +442,15 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
     }
 
     setTimeout(() => {
-      if (kind === 'fill') {
-        // Swap run progress back for column coverage, which is what the row means at rest.
-        loadFillMetrics(fieldId).then(() => onComplete?.(lastData));
-        router.refresh();
-      } else {
-        setJobStates(prev => ({ ...prev, [fieldId]: { active: false, total: currentTotal, done: currentTotal, completed: true } }));
-      }
+      setJobStates(prev => ({ ...prev, [fieldId]: { active: false, total: currentTotal, done: currentTotal, completed: true } }));
     }, 1500);
   };
 
   const handlePreCache = (fieldId: string) =>
     runFieldJob(
       fieldId,
-      'cache',
       () => fetch(`/api/collections/${collection.id}/cache?fieldId=${fieldId}`, { method: 'POST' }),
       (data) => ({ total: data.total, done: data.cached, error: data.debug })
-    );
-
-  // Blank-only by default: the row button never overwrites work someone already did.
-  // Overwriting everything is available from the AI modal, where it has to be chosen.
-  const handleFill = (fieldId: string, mode: 'FILL' | 'OVERWRITE' = 'FILL') =>
-    runFieldJob(
-      fieldId,
-      'fill',
-      () => fetch(`/api/fields/${fieldId}/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode })
-      }),
-      (data) => ({ total: data.total, done: data.done, error: data.error, complete: data.complete }),
-      // A run that ends with nothing written must not look like a no-op. Failures are red,
-      // vocabulary flags amber; both point at the run history for the detail.
-      (data) => {
-        if (!data) return;
-        if (data.failed > 0) {
-          setJobStates(prev => ({ ...prev, [fieldId]: { active: false, total: 0, done: 0, error: `${data.failed} failed`, } }));
-        } else if (data.flagged > 0) {
-          setJobStates(prev => ({ ...prev, [fieldId]: { active: false, total: 0, done: 0, warn: `${data.flagged} flagged`, } }));
-        }
-      }
     );
 
   // Dry run. Saves the configuration first: the server generates from the *saved* prompt,
@@ -485,6 +459,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
     if (!activeField) return;
     setPreviewError("");
     setPreviewLoading(true);
+    setFailureRows(null);
     try {
       const saved = await saveMappings(false);
       if (!saved) throw new Error("Could not save the prompt before previewing.");
@@ -519,7 +494,26 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
       .catch(console.error);
   }, []);
 
-  const handleRevert = async (runId: string) => {
+  // "1 failed" is not useful until you can see which record it was.
+  const loadRunResults = async (runId: string, status: string) => {
+    if (!activeField) return;
+    if (failureRunId === runId && failureStatus === status) { setFailureRows(null); setFailureRunId(null); return; }
+    setFailureRunId(runId);
+    setFailureStatus(status);
+    setFailureRows([]);
+    try {
+      const res = await fetch(`/api/fields/${activeField.id}/generate/results?runId=${runId}&status=${status}`);
+      if (!res.ok) throw new Error(await res.text().catch(() => "Could not read run results"));
+      const data = await res.json();
+      setFailureRows(data.rows);
+    } catch (e: any) {
+      setRevertNotice(e.message);
+      setFailureRows(null);
+      setFailureRunId(null);
+    }
+  };
+
+  const handleRevert = async (runId: string, direction: 'undo' | 'redo') => {
     if (!activeField) return;
     setRevertBusy(runId);
     setRevertNotice("");
@@ -527,15 +521,16 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
       const res = await fetch(`/api/fields/${activeField.id}/generate/revert`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ runId })
+        body: JSON.stringify({ runId, direction })
       });
       if (!res.ok) throw new Error(await res.text().catch(() => "Revert failed"));
 
       const summary = await res.json();
+      const verb = direction === 'undo' ? "Restored" : "Re-applied";
       setRevertNotice(
         summary.conflicts > 0
-          ? `Restored ${summary.reverted} values. ${summary.conflicts} were edited by hand since the run and were left alone.`
-          : `Restored ${summary.reverted} values.`
+          ? `${verb} ${summary.applied} values. ${summary.conflicts} were changed since this run — by hand, or by a later run — and were left alone.`
+          : `${verb} ${summary.applied} values.`
       );
       loadFieldRuns(activeField.id);
       loadFillMetrics(activeField.id);
@@ -546,6 +541,105 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
       setRevertBusy(null);
     }
   };
+
+  // An AI run belongs to the server, not to this tab. The page only watches it, so closing
+  // the laptop or navigating away no longer stops the work -- and reopening the page picks
+  // the display back up wherever the run has got to.
+  const watchRun = useCallback(async (fieldId: string) => {
+    if (pollingRef.current.has(fieldId)) return;
+    pollingRef.current.add(fieldId);
+
+    try {
+      while (true) {
+        const res = await fetch(`/api/fields/${fieldId}/generate`);
+        if (!res.ok) throw new Error(await res.text().catch(() => "Lost contact with the server"));
+        const data = await res.json();
+        const open = data.open;
+
+        if (!open) {
+          // The run finished while we were watching. Report anything that did not get
+          // written, then fall back to showing column coverage.
+          const last = (data.runs || [])[0];
+          if (last && last.failed > 0) {
+            setJobStates(prev => ({ ...prev, [fieldId]: { active: false, total: 0, done: 0, error: `${last.failed} failed` } }));
+          } else if (last && last.flagged > 0) {
+            setJobStates(prev => ({ ...prev, [fieldId]: { active: false, total: 0, done: 0, warn: `${last.flagged} flagged` } }));
+          } else {
+            setJobStates(prev => ({ ...prev, [fieldId]: { active: false, total: data.total, done: data.filled, completed: data.total > 0 && data.blank === 0 } }));
+          }
+          if (aiModalFieldIdRef.current === fieldId) loadFieldRuns(fieldId);
+          router.refresh();
+          return;
+        }
+
+        // A RUNNING row with no worker behind it means the server restarted mid-run.
+        if (!open.running) {
+          setJobStates(prev => ({ ...prev, [fieldId]: { active: false, total: open.total, done: open.done, error: open.error || "Run stalled — press fill to resume" } }));
+          return;
+        }
+
+        setJobStates(prev => ({ ...prev, [fieldId]: { active: true, total: open.total, done: open.done, completed: false } }));
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    } catch (e: any) {
+      console.error(e);
+      setJobStates(prev => ({ ...prev, [fieldId]: { active: false, total: 0, done: 0, error: e.message } }));
+    } finally {
+      pollingRef.current.delete(fieldId);
+    }
+  }, [loadFieldRuns, router]);
+
+  // Blank-only by default: the row button never overwrites work someone already did.
+  // Overwriting everything is available from the AI modal, where it has to be chosen.
+  const handleFill = async (fieldId: string, mode: 'FILL' | 'OVERWRITE' = 'FILL') => {
+    // The server runs the *saved* prompt, not whatever is sitting in the textarea.
+    const successfullySaved = await saveMappings(false);
+    if (!successfullySaved) return;
+
+    setJobStates(prev => ({ ...prev, [fieldId]: { active: true, total: 0, done: 0, completed: false } }));
+    try {
+      const res = await fetch(`/api/fields/${fieldId}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode })
+      });
+      if (!res.ok) throw new Error(await res.text().catch(() => "Could not start the run"));
+      watchRun(fieldId);
+    } catch (e: any) {
+      setJobStates(prev => ({ ...prev, [fieldId]: { active: false, total: 0, done: 0, error: e.message } }));
+    }
+  };
+
+  // Picks a stalled run back up without touching the saved configuration.
+  const resumeRun = useCallback(async (fieldId: string) => {
+    await fetch(`/api/fields/${fieldId}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'FILL' })
+    }).catch(console.error);
+    watchRun(fieldId);
+  }, [watchRun]);
+
+  const handleCancel = async (fieldId: string) => {
+    await fetch(`/api/fields/${fieldId}/generate/cancel`, { method: 'POST' }).catch(console.error);
+    // The worker stops at its next slice; the watcher notices and settles the row.
+  };
+
+  // Reconnect to work already in progress. A run started before this page was opened --
+  // or before the last deploy -- keeps going, and the row picks the display back up. A
+  // RUNNING row with no worker behind it means the server restarted, so adopt it.
+  useEffect(() => {
+    const ids = aiFieldIdsString ? aiFieldIdsString.split(',') : [];
+    ids.forEach(id => {
+      fetch(`/api/fields/${id}/generate`)
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (!data?.open) return;
+          if (data.open.running) watchRun(id); else resumeRun(id);
+        })
+        .catch(console.error);
+    });
+  }, [aiFieldIdsString, watchRun, resumeRun]);
 
   const handleAddField = () => {
     setFields(prev => [...prev, {
@@ -571,11 +665,15 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
   };
 
   const aiModalFieldId = modalOpen === 'ai' ? activeField?.id : undefined;
+  aiModalFieldIdRef.current = aiModalFieldId;
   useEffect(() => {
     if (!aiModalFieldId) return;
     setPreviewRows(null);
     setPreviewError("");
     setRevertNotice("");
+    setFailureRows(null);
+    setFailureRunId(null);
+    setShowAllRuns(false);
     setFillMode('FILL');
     loadFieldRuns(aiModalFieldId);
   }, [aiModalFieldId, loadFieldRuns]);
@@ -1191,19 +1289,32 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                 {error && <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded mb-3">{error}</div>}
 
                 <div className="mt-auto pt-2 space-y-3">
-                  <button
-                    disabled={loading || !activeField?.aiPrompt?.trim()}
-                    onClick={async () => {
-                      const id = activeField?.id || '';
-                      setModalOpen(null); // Progress renders on the field row, so get out of its way.
-                      await handleFill(id, fillMode);
-                    }}
-                    className="w-full bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 font-bold shadow-sm disabled:opacity-50"
-                  >
-                    {fillMode === 'FILL'
-                      ? `Run on ${fieldMetrics ? fieldMetrics.blank : ''} blank record${fieldMetrics?.blank === 1 ? '' : 's'}`.replace('  ', ' ')
-                      : `Overwrite all ${fieldMetrics ? fieldMetrics.total : ''} records`.replace('  ', ' ')}
-                  </button>
+                  {jobStates[activeField.id]?.active ? (
+                    <button
+                      onClick={() => handleCancel(activeField.id)}
+                      className="w-full bg-red-600 text-white px-4 py-2 rounded text-sm hover:bg-red-700 font-bold shadow-sm"
+                      title="Records already in flight finish and are recorded; nothing new is started."
+                    >
+                      Stop run ({jobStates[activeField.id].done} / {jobStates[activeField.id].total} done)
+                    </button>
+                  ) : (
+                    <button
+                      disabled={loading || !activeField?.aiPrompt?.trim()}
+                      onClick={async () => {
+                        const id = activeField?.id || '';
+                        setModalOpen(null); // Progress renders on the field row, so get out of its way.
+                        await handleFill(id, fillMode);
+                      }}
+                      className="w-full bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 font-bold shadow-sm disabled:opacity-50"
+                    >
+                      {fillMode === 'FILL'
+                        ? `Run on ${fieldMetrics ? fieldMetrics.blank : ''} blank record${fieldMetrics?.blank === 1 ? '' : 's'}`.replace('  ', ' ')
+                        : `Overwrite all ${fieldMetrics ? fieldMetrics.total : ''} records`.replace('  ', ' ')}
+                    </button>
+                  )}
+                  <p className="text-[10px] text-gray-500 leading-relaxed">
+                    Runs execute on the server. You can close this page, or your laptop, without stopping one.
+                  </p>
                   <div className="flex justify-between items-center">
                     <button
                       disabled={loading}
@@ -1289,28 +1400,74 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                 </div>
 
                 <div className="mt-4">
-                  <p className="text-xs font-semibold text-gray-700 mb-2">Run history</p>
+                  <div className="flex items-center gap-3 mb-2">
+                    <p className="text-xs font-semibold text-gray-700">Run history</p>
+                    {fieldRuns.length > 3 && (
+                      <button
+                        onClick={() => setShowAllRuns(v => !v)}
+                        className="text-[10px] text-gray-500 hover:text-gray-700 underline"
+                      >{showAllRuns ? "show fewer" : `show all ${fieldRuns.length}`}</button>
+                    )}
+                  </div>
                   {revertNotice && <div className="bg-blue-50 border border-blue-200 text-blue-800 text-[11px] p-2.5 rounded mb-2">{revertNotice}</div>}
                   {fieldRuns.length === 0 ? (
                     <p className="text-[11px] text-gray-400">No batch runs yet.</p>
                   ) : (
-                    <div className="max-h-32 overflow-y-auto space-y-1.5">
-                      {fieldRuns.map((run: any) => (
-                        <div key={run.id} className="flex items-center gap-3 text-[11px] border border-gray-200 rounded px-2.5 py-1.5">
-                          <span className="text-gray-500 font-mono">{new Date(run.createdAt).toLocaleString()}</span>
-                          <span className="text-gray-400 uppercase tracking-wide font-bold">{run.mode}</span>
-                          <span className="text-gray-700">
-                            {run.written} written
-                            {run.flagged > 0 && <span className="text-amber-700"> · {run.flagged} flagged</span>}
-                            {run.failed > 0 && <span className="text-red-600"> · {run.failed} failed</span>}
-                          </span>
-                          <span className={`ml-auto uppercase tracking-wide font-bold ${run.status === 'FAILED' ? 'text-red-600' : run.status === 'REVERTED' ? 'text-gray-400' : 'text-gray-500'}`}>{run.status}</span>
-                          {run.status !== 'REVERTED' && run.written > 0 && (
-                            <button
-                              onClick={() => handleRevert(run.id)}
-                              disabled={revertBusy === run.id}
-                              className="text-red-500 hover:text-red-700 font-bold disabled:opacity-50"
-                            >{revertBusy === run.id ? "Undoing…" : "Undo"}</button>
+                    <div className={`${showAllRuns ? 'max-h-40' : ''} overflow-y-auto space-y-1.5`}>
+                      {(showAllRuns ? fieldRuns : fieldRuns.slice(0, 3)).map((run: any) => (
+                        <div key={run.id} className="border border-gray-200 rounded px-2.5 py-1.5">
+                          <div className="flex items-center gap-3 text-[11px]">
+                            <span className="text-gray-500 font-mono">{new Date(run.createdAt).toLocaleString()}</span>
+                            <span className="text-gray-400 uppercase tracking-wide font-bold">{run.mode}</span>
+                            <span className="text-gray-700">
+                              {run.written} written
+                              {/* The counts are the way in to the records behind them. */}
+                              {run.flagged > 0 && (
+                                <button onClick={() => loadRunResults(run.id, 'FLAGGED')} className="text-amber-700 underline hover:text-amber-900"> · {run.flagged} flagged</button>
+                              )}
+                              {run.failed > 0 && (
+                                <button onClick={() => loadRunResults(run.id, 'FAILED')} className="text-red-600 underline hover:text-red-800"> · {run.failed} failed</button>
+                              )}
+                            </span>
+                            <span className={`ml-auto uppercase tracking-wide font-bold ${run.status === 'FAILED' ? 'text-red-600' : run.status === 'REVERTED' ? 'text-gray-400' : run.status === 'RUNNING' ? 'text-blue-600' : 'text-gray-500'}`}>{run.status}</span>
+                            {run.status === 'REVERTED' && run.written > 0 && (
+                              <button
+                                onClick={() => handleRevert(run.id, 'redo')}
+                                disabled={revertBusy === run.id}
+                                className="text-blue-600 hover:text-blue-800 font-bold disabled:opacity-50"
+                                title="Put this run's values back. Records changed since the undo are left alone."
+                              >{revertBusy === run.id ? "Redoing…" : "Redo"}</button>
+                            )}
+                            {run.status !== 'REVERTED' && run.status !== 'RUNNING' && run.written > 0 && (
+                              <button
+                                onClick={() => handleRevert(run.id, 'undo')}
+                                disabled={revertBusy === run.id}
+                                className="text-red-500 hover:text-red-700 font-bold disabled:opacity-50"
+                                title="Restore what these records held before this run. Anything changed since — by hand or by a later run — is left alone and reported."
+                              >{revertBusy === run.id ? "Undoing…" : "Undo"}</button>
+                            )}
+                          </div>
+
+                          {failureRunId === run.id && failureRows && (
+                            <div className="mt-2 border-t border-gray-100 pt-2">
+                              {failureRows.length === 0 ? (
+                                <p className="text-[10px] text-gray-400">Loading…</p>
+                              ) : (
+                                <table className="w-full text-[10px]">
+                                  <tbody>
+                                    {failureRows.map((row: any) => (
+                                      <tr key={row.recordId} className="align-top">
+                                        <td className="py-0.5 pr-2 text-gray-400 font-mono w-8">{row.position ?? '—'}</td>
+                                        <td className="py-0.5 pr-2 truncate max-w-[120px]" title={row.label}>{row.label || '—'}</td>
+                                        <td className={`py-0.5 ${failureStatus === 'FAILED' ? 'text-red-600' : 'text-amber-700'}`}>
+                                          {failureStatus === 'FAILED' ? row.error : `answered "${row.newValue}" — not in the Terms list`}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              )}
+                            </div>
                           )}
                         </div>
                       ))}
