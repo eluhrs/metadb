@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { hasCachedBlob, extractDriveFileId } from "@/lib/imageCache";
+import { parseRecordPositions } from "@/lib/recordRanges";
 import {
   AI_RECORD_INCLUDE,
   checkVocab,
@@ -442,15 +443,26 @@ export type PreviewRow = {
 // and collapsing the stretches it would skip into a single summary line, so the table
 // stays the size of the work rather than the size of the collection. Writes nothing and
 // records no run.
+// A dry run costs one API call per record it generates, so a selection is capped rather
+// than letting "1-500" quietly spend as much as the real run.
+export const PREVIEW_MAX = 25;
+
 export async function runPreview(
   ctx: FieldContext,
-  limit: number,
+  selection: string,
   compare: boolean,
   mode: string
 ): Promise<PreviewRow[]> {
   const { field, collectionId } = ctx;
 
-  const records = await orderedRecords(collectionId, [field.id]);
+  const all = await orderedRecords(collectionId, [field.id]);
+
+  // The expression names positions in the collection's order, the same numbering Bulk
+  // Apply uses and the same numbering the preview prints back.
+  const positions = parseRecordPositions(selection).slice(0, PREVIEW_MAX);
+  const records = positions
+    .map(p => ({ record: all[p - 1], position: p }))
+    .filter(r => r.record !== undefined);
 
   type Slot = { position: number; recordId: string; current: string };
   const slots: Slot[] = [];
@@ -467,7 +479,7 @@ export async function runPreview(
   };
 
   for (let i = 0; i < records.length; i++) {
-    const current = readValue(records[i], field.id);
+    const current = readValue(records[i].record, field.id);
     // The dry run has to preview the run that is actually configured. An OVERWRITE run
     // touches every record, so previewing it must too -- otherwise selecting "overwrite
     // every record" produced a preview of nothing. Compare adds the same behaviour to a
@@ -475,16 +487,15 @@ export async function runPreview(
     const wouldGenerate = mode === "OVERWRITE" || compare ? true : isBlank(current);
 
     if (!wouldGenerate) { skipped++; continue; }
-    if (slots.length >= limit) break;
 
     flushSkipped();
 
-    const slot = { position: i + 1, recordId: records[i].id, current };
+    const slot = { position: records[i].position, recordId: records[i].record.id, current };
     slots.push(slot);
     rows.push({ ...slot, label: "", proposed: null, status: "fill" });
   }
 
-  // Nothing qualified: say so once rather than listing the whole collection.
+  // Nothing in the selection qualified: say so once rather than listing every row.
   flushSkipped();
 
   const loaded = await prisma.record.findMany({

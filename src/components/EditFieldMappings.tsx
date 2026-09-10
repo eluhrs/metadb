@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { parseRecordPositions, describePositions } from "@/lib/recordRanges";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -326,10 +327,11 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
 
   // AI modal: dry-run preview and run history for the field currently open.
   const [previewRows, setPreviewRows] = useState<any[] | null>(null);
-  const [previewLabel, setPreviewLabel] = useState("Record");
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
-  const [previewLimit, setPreviewLimit] = useState(10);
+  // A records expression -- "1-10", "3", "1,5,20-25" -- in the same syntax Bulk Apply
+  // uses, naming positions in the collection's order.
+  const [previewSelection, setPreviewSelection] = useState('1-10');
   const [previewCompare, setPreviewCompare] = useState(false);
   const [fillMode, setFillMode] = useState<'FILL' | 'OVERWRITE'>('FILL');
   const [fieldRuns, setFieldRuns] = useState<any[]>([]);
@@ -339,7 +341,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
   const [failureRows, setFailureRows] = useState<any[] | null>(null);
   const [failureRunId, setFailureRunId] = useState<string | null>(null);
   const [failureStatus, setFailureStatus] = useState<string>('FAILED');
-  const [showAllRuns, setShowAllRuns] = useState(false);
+  const [aiTab, setAiTab] = useState<'dry' | 'log'>('dry');
 
   // Which fields already have a watcher attached, so remounts and repeated clicks do not
   // stack up duplicate polling loops against the same run.
@@ -467,13 +469,12 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
       const res = await fetch(`/api/fields/${activeField.id}/generate/preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ limit: previewLimit, compare: previewCompare, mode: fillMode })
+        body: JSON.stringify({ records: previewSelection, compare: previewCompare, mode: fillMode })
       });
       if (!res.ok) throw new Error(await res.text().catch(() => "Preview failed"));
 
       const data = await res.json();
       setPreviewRows(data.rows);
-      setPreviewLabel(data.labelName || "Record");
     } catch (e: any) {
       setPreviewError(e.message);
       setPreviewRows(null);
@@ -511,6 +512,11 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
       setFailureRows(null);
       setFailureRunId(null);
     }
+  };
+
+  const handleClearAiSettings = () => {
+    if (!activeField) return;
+    saveAndClose(applyFieldUpdate(activeField.id, { aiPrompt: null, aiModel: null }));
   };
 
   const handleRevert = async (runId: string, direction: 'undo' | 'redo') => {
@@ -684,7 +690,8 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
     setRevertNotice("");
     setFailureRows(null);
     setFailureRunId(null);
-    setShowAllRuns(false);
+    setAiTab('dry');
+    setPreviewSelection('1-10');
     setFillMode('FILL');
     loadFieldRuns(aiModalFieldId);
   }, [aiModalFieldId, loadFieldRuns]);
@@ -1212,6 +1219,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
           ? activeField.controlledVocabList.split('\n').map((t: string) => t.trim()).filter(Boolean)
           : [];
         const coldImages = fieldMetrics?.images && fieldMetrics.images.cached < fieldMetrics.images.needed;
+        const running = jobStates[activeField.id]?.active;
         const badge: Record<string, string> = {
           fill: 'bg-blue-50 text-blue-700 border-blue-200',
           flag: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -1220,89 +1228,92 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
           differs: 'bg-amber-50 text-amber-700 border-amber-200',
         };
 
+        // Echo what the expression resolves to, so a bare number is never ambiguous.
+        const selected = parseRecordPositions(previewSelection);
+        const capped = selected.length > 25;
+        const selectionHint = selected.length === 0
+          ? "no records selected"
+          : `records ${describePositions(selected.slice(0, 25))}${capped ? ` (first 25 of ${selected.length})` : ''}`;
+
         return (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow border border-gray-200 w-full max-w-5xl max-h-[90vh] flex flex-col">
-            <div className="flex justify-between items-center px-6 pt-6 pb-3">
-              <h3 className="text-lg font-bold text-gray-900 border-b-2 border-blue-600 pb-1">AI Settings</h3>
+          <div className="bg-white rounded-xl shadow border border-gray-200 w-full max-w-6xl h-[92vh] flex flex-col">
+
+            <div className="flex justify-between items-center px-6 pt-5 pb-4">
+              <h3 className="text-lg font-bold text-gray-900">
+                <span className="font-mono text-blue-700">{activeField.name}</span> Prompt Settings
+              </h3>
               <span className="text-gray-400 font-bold cursor-pointer hover:text-gray-600" onClick={() => setModalOpen(null)}>✕</span>
             </div>
-            <p className="text-xs text-gray-500 px-6 pb-4">Configure generative behavior for <span className="font-semibold text-gray-800">{activeField?.name}</span> field.</p>
 
-            <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-6 px-6 pb-6">
+            {/* Configuration: the prompt gets the room, since these run to thousands of characters. */}
+            <div className="flex gap-6 px-6 flex-shrink-0 h-[370px]">
+              <div className="flex-1 min-w-0 flex flex-col">
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Prompt text</label>
+                <textarea
+                  className="w-full flex-1 min-h-0 border border-gray-300 rounded text-sm p-3 focus:ring-blue-500 focus:outline-none font-mono leading-relaxed resize-none"
+                  placeholder="Translate {{Title English}} to Japanese."
+                  value={activeField?.aiPrompt || ''}
+                  onChange={(e) => updateField(activeField?.id || '', { aiPrompt: e.target.value })}
+                />
+                <span className="text-[10px] text-blue-600 font-medium block mt-1">Use {'{{field_name}}'} variables within AI prompts</span>
+                <span className="text-[10px] text-gray-500 font-medium block">Images: {'{{image}}'}, {'{{image1}}'} or {'{{front}}'} for Image 1 &middot; {'{{image2}}'} or {'{{back}}'} for Image 2</span>
+              </div>
 
-              {/* Configuration — unchanged in width, so editing a prompt feels the same as before. */}
-              <div className="w-full lg:w-[360px] flex-shrink-0 flex flex-col overflow-y-auto">
-                <div className="space-y-4 mb-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">Prompt text</label>
-                    <textarea
-                      className="w-full border border-gray-300 rounded text-sm p-3 h-40 focus:ring-blue-500 focus:outline-none"
-                      placeholder="Translate {{Title English}} to Japanese."
-                      value={activeField?.aiPrompt || ''}
-                      onChange={(e) => updateField(activeField?.id || '', { aiPrompt: e.target.value })}
-                    />
-                    <span className="text-[10px] text-blue-600 font-medium block">Use {'{{field_name}}'} variables within AI prompts</span>
-                    <span className="text-[10px] text-gray-500 font-medium block">Images: {'{{image}}'}, {'{{image1}}'} or {'{{front}}'} for Image 1 &middot; {'{{image2}}'} or {'{{back}}'} for Image 2</span>
-                  </div>
+              {/* Everything in this rail is saved onto the field. Transient dry-run options
+                  deliberately live down on the tab bar instead, beside their output. */}
+              <div className="w-[300px] flex-shrink-0 flex flex-col">
+                <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">AI model</label>
+                  <select
+                    className="w-full border border-gray-300 rounded text-sm p-2 focus:ring-blue-500 focus:outline-none bg-white"
+                    value={activeField?.aiModel || availableModels[0]}
+                    onChange={(e) => updateField(activeField?.id || '', { aiModel: e.target.value })}
+                  >
+                    {availableModels.map((m: string) => (<option key={m} value={m}>{m}</option>))}
+                  </select>
+                </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">AI Model Selection</label>
-                    <select
-                      className="w-full border border-gray-300 rounded text-sm p-2 focus:ring-blue-500 focus:outline-none bg-white"
-                      value={activeField?.aiModel || availableModels[0]}
-                      onChange={(e) => updateField(activeField?.id || '', { aiModel: e.target.value })}
-                    >
-                      {availableModels.map((m: string) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Terms and Prompt compose deliberately: the list is the value space, the
-                      prompt chooses from it. Spell that out rather than leaving it implied. */}
-                  {terms.length > 0 && (
-                    <div className="bg-slate-50 border border-slate-200 rounded p-3">
-                      <p className="text-[11px] font-semibold text-slate-700 mb-1">Answers are validated against this field&apos;s Terms list ({terms.length} values)</p>
-                      <p className="text-[10px] text-slate-500 leading-relaxed">{terms.slice(0, 12).join(' · ')}{terms.length > 12 ? ' …' : ''}</p>
-                      <p className="text-[10px] text-slate-500 mt-1.5">An answer outside the list is flagged and left unwritten.</p>
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">Batch run scope</label>
-                    <select
-                      className="w-full border border-gray-300 rounded text-sm p-2 focus:ring-blue-500 focus:outline-none bg-white"
-                      value={fillMode}
-                      onChange={(e) => setFillMode(e.target.value as 'FILL' | 'OVERWRITE')}
-                    >
-                      <option value="FILL">Fill blanks only — preserve existing values</option>
-                      <option value="OVERWRITE">Overwrite every record</option>
-                    </select>
-                    {fieldMetrics && (
-                      <p className="text-[10px] text-gray-500 mt-1">
-                        {fieldMetrics.filled} of {fieldMetrics.total} records already have a value.
-                      </p>
-                    )}
-                  </div>
-
-                  {fieldMetrics?.reason && (
-                    <div className="bg-amber-50 border border-amber-200 text-amber-800 text-[11px] p-2.5 rounded">{fieldMetrics.reason}</div>
-                  )}
-                  {coldImages && (
-                    <div className="bg-amber-50 border border-amber-200 text-amber-800 text-[11px] p-2.5 rounded">
-                      {fieldMetrics.images.needed - fieldMetrics.images.cached} of {fieldMetrics.images.needed} images are not cached yet and will be pulled from Drive during the run. Pre-caching the image field first makes this much faster.
-                    </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Batch run scope</label>
+                  <select
+                    className="w-full border border-gray-300 rounded text-sm p-2 focus:ring-blue-500 focus:outline-none bg-white"
+                    value={fillMode}
+                    onChange={(e) => setFillMode(e.target.value as 'FILL' | 'OVERWRITE')}
+                  >
+                    <option value="FILL">Fill blanks only — preserve existing values</option>
+                    <option value="OVERWRITE">Overwrite every record</option>
+                  </select>
+                  {fieldMetrics && (
+                    <p className="text-[10px] text-gray-500 mt-1">{fieldMetrics.filled} of {fieldMetrics.total} records already have a value.</p>
                   )}
                 </div>
 
-                {error && <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded mb-3">{error}</div>}
+                {terms.length > 0 && (
+                  <div className="bg-slate-50 border border-slate-200 rounded p-2.5">
+                    <p className="text-[11px] font-semibold text-slate-700 mb-1">Validated against this field&apos;s Terms list ({terms.length})</p>
+                    <p className="text-[10px] text-slate-500 leading-relaxed">{terms.slice(0, 8).join(' · ')}{terms.length > 8 ? ' …' : ''}</p>
+                    <p className="text-[10px] text-slate-500 mt-1">An answer outside the list is flagged and left unwritten.</p>
+                  </div>
+                )}
+                {fieldMetrics?.reason && (
+                  <div className="bg-amber-50 border border-amber-200 text-amber-800 text-[11px] p-2.5 rounded">{fieldMetrics.reason}</div>
+                )}
+                {coldImages && (
+                  <div className="bg-amber-50 border border-amber-200 text-amber-800 text-[11px] p-2.5 rounded">
+                    {fieldMetrics.images.needed - fieldMetrics.images.cached} of {fieldMetrics.images.needed} images are not cached and will be pulled from Drive during the run.
+                  </div>
+                )}
+                {error && <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-2.5 rounded">{error}</div>}
+                </div>
 
-                <div className="mt-auto pt-2 space-y-3">
-                  {jobStates[activeField.id]?.active ? (
+                {/* Submit is the only control here that spends money; it carries the weight. */}
+                <div className="flex-shrink-0 space-y-2 pt-3">
+                  {running ? (
                     <button
                       onClick={() => handleCancel(activeField.id)}
-                      className="w-full bg-red-600 text-white px-4 py-2 rounded text-sm hover:bg-red-700 font-bold shadow-sm"
+                      className="w-full bg-red-600 text-white px-4 py-2.5 rounded text-sm hover:bg-red-700 font-bold shadow-sm"
                       title="Records already in flight finish and are recorded; nothing new is started."
                     >
                       Stop run ({jobStates[activeField.id].done} / {jobStates[activeField.id].total} done)
@@ -1312,193 +1323,192 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                       disabled={loading || !activeField?.aiPrompt?.trim()}
                       onClick={async () => {
                         const id = activeField?.id || '';
-                        setModalOpen(null); // Progress renders on the field row, so get out of its way.
+                        setModalOpen(null);
                         await handleFill(id, fillMode);
                       }}
-                      className="w-full bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 font-bold shadow-sm disabled:opacity-50"
+                      className="w-full bg-blue-600 text-white px-4 py-2.5 rounded text-sm hover:bg-blue-700 font-bold shadow-sm disabled:opacity-50"
+                      title="Runs execute on the server. You can close this page, or your laptop, without stopping one."
                     >
                       {fillMode === 'FILL'
                         ? `Run on ${fieldMetrics ? fieldMetrics.blank : ''} blank record${fieldMetrics?.blank === 1 ? '' : 's'}`.replace('  ', ' ')
                         : `Overwrite all ${fieldMetrics ? fieldMetrics.total : ''} records`.replace('  ', ' ')}
                     </button>
                   )}
-                  <p className="text-[10px] text-gray-500 leading-relaxed">
-                    Runs execute on the server. You can close this page, or your laptop, without stopping one.
-                  </p>
-                  <div className="flex justify-between items-center">
-                    <button
-                      disabled={loading}
-                      onClick={() => saveAndClose(applyFieldUpdate(activeField?.id || '', { aiPrompt: null }))}
-                      className="text-red-500 hover:text-red-700 text-sm font-medium disabled:opacity-50"
-                    >Remove AI Prompt</button>
-                    <button
-                      disabled={loading}
-                      onClick={() => saveAndClose()}
-                      className="bg-slate-800 text-white px-6 py-2 rounded text-sm hover:bg-slate-700 font-bold shadow-sm disabled:opacity-50"
-                    >{loading ? "Saving..." : "Save Settings"}</button>
-                  </div>
+                  <button
+                    disabled={loading}
+                    onClick={() => saveAndClose()}
+                    className="w-full bg-white border border-gray-300 text-gray-800 px-4 py-2 rounded text-sm hover:bg-gray-50 font-bold disabled:opacity-50"
+                  >{loading ? "Saving..." : "Save settings"}</button>
+                  <button
+                    disabled={loading}
+                    onClick={handleClearAiSettings}
+                    className="w-full text-red-500 hover:text-red-700 text-xs font-medium disabled:opacity-50 py-1"
+                    title="Removes the prompt and model from this field entirely, switching AI off for it."
+                  >Clear settings</button>
                 </div>
               </div>
+            </div>
 
-              {/* Dry run and history */}
-              <div className="flex-1 min-w-0 flex flex-col border-l border-gray-100 lg:pl-6 min-h-0">
-                <div className="flex items-center gap-3 flex-wrap mb-3">
-                  <span className="text-xs font-semibold text-gray-700">Dry run</span>
-                  <label className="text-[11px] text-gray-500 flex items-center gap-1.5">
-                    rows
-                    <input
-                      type="number" min={1} max={25} value={previewLimit}
-                      onChange={(e) => setPreviewLimit(Math.min(25, Math.max(1, Number(e.target.value) || 1)))}
-                      className="w-14 border border-gray-300 rounded px-1.5 py-1 text-xs"
-                    />
-                  </label>
-                  <label
-                    className={`text-[11px] flex items-center gap-1.5 ${fillMode === 'OVERWRITE' ? 'text-gray-400 cursor-not-allowed' : 'text-gray-600 cursor-pointer'}`}
-                    title={fillMode === 'OVERWRITE'
-                      ? "An overwrite run regenerates every record, so the dry run already includes the ones that have values."
-                      : "Also generate for records that already have a value, and show where the model disagrees with what was catalogued by hand."}
-                  >
-                    <input
-                      type="checkbox"
-                      className="w-3.5 h-3.5 rounded"
-                      checked={fillMode === 'OVERWRITE' || previewCompare}
-                      disabled={fillMode === 'OVERWRITE'}
-                      onChange={(e) => setPreviewCompare(e.target.checked)}
-                    />
-                    compare against existing values
-                  </label>
+            {/* Output */}
+            <div className="flex-1 min-h-0 flex flex-col px-6 pb-6 pt-4">
+              <div className="flex items-end gap-1 border-b border-gray-200">
+                {([['dry', 'Dry run output'], ['log', 'Change log']] as const).map(([key, label]) => (
                   <button
-                    onClick={handlePreview}
-                    disabled={previewLoading || !activeField?.aiPrompt?.trim()}
-                    className="ml-auto bg-white border border-gray-300 text-gray-700 px-4 py-1.5 rounded text-xs font-bold hover:bg-gray-50 disabled:opacity-50"
-                  >{previewLoading ? "Generating…" : "Preview"}</button>
-                </div>
+                    key={key}
+                    onClick={() => setAiTab(key)}
+                    className={`px-4 py-2 text-xs font-bold rounded-t border border-b-0 -mb-px ${aiTab === key ? 'bg-white border-gray-200 text-gray-900' : 'bg-gray-50 border-transparent text-gray-500 hover:text-gray-700'}`}
+                  >{label}</button>
+                ))}
 
-                {previewError && <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded mb-3">{previewError}</div>}
+                {/* Throwaway view parameters, next to the output they change. */}
+                {aiTab === 'dry' && (
+                  <div className="ml-auto flex items-center gap-3 pb-1.5">
+                    <label className="text-[11px] text-gray-500 flex items-center gap-1.5">
+                      records
+                      <input
+                        type="text"
+                        value={previewSelection}
+                        onChange={(e) => setPreviewSelection(e.target.value)}
+                        placeholder="1-10"
+                        className="w-28 border border-gray-300 rounded px-1.5 py-1 text-xs font-mono"
+                        title="Positions in the collection's order. Accepts 3, 1-10, or 1,5,20-25."
+                      />
+                    </label>
+                    <span className="text-[10px] text-gray-400 w-40 truncate" title={selectionHint}>{selectionHint}</span>
+                    <label
+                      className={`text-[11px] flex items-center gap-1.5 ${fillMode === 'OVERWRITE' ? 'text-gray-400 cursor-not-allowed' : 'text-gray-600 cursor-pointer'}`}
+                      title={fillMode === 'OVERWRITE'
+                        ? "An overwrite run regenerates every record, so the dry run already includes the ones that have values."
+                        : "Also generate for records that already have a value, and show where the model disagrees with what was catalogued by hand."}
+                    >
+                      <input
+                        type="checkbox"
+                        className="w-3.5 h-3.5 rounded"
+                        checked={fillMode === 'OVERWRITE' || previewCompare}
+                        disabled={fillMode === 'OVERWRITE'}
+                        onChange={(e) => setPreviewCompare(e.target.checked)}
+                      />
+                      compare against existing values
+                    </label>
+                    <button
+                      onClick={handlePreview}
+                      disabled={previewLoading || !activeField?.aiPrompt?.trim() || selected.length === 0}
+                      className="bg-white border border-gray-300 text-gray-700 px-4 py-1.5 rounded text-xs font-bold hover:bg-gray-50 disabled:opacity-50"
+                    >{previewLoading ? "Generating…" : "Dry run"}</button>
+                  </div>
+                )}
+              </div>
 
-                <div className="flex-1 min-h-0 overflow-auto border border-gray-200 rounded">
-                  {previewRows === null ? (
+              <div className="flex-1 min-h-0 overflow-auto border border-gray-200 rounded-b rounded-tr">
+                {aiTab === 'dry' ? (
+                  previewError ? (
+                    <div className="p-3"><div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded">{previewError}</div></div>
+                  ) : previewRows === null ? (
                     <div className="h-full flex items-center justify-center text-center p-8">
-                      <p className="text-xs text-gray-400 max-w-xs leading-relaxed">
-                        Preview runs the prompt against the first few records and writes nothing.
-                        Rows that already have a value are shown too, so you can see what the run would leave alone.
+                      <p className="text-xs text-gray-400 max-w-sm leading-relaxed">
+                        A dry run generates for the selected records and writes nothing, so a prompt can be
+                        tuned before it is committed to. Records the run would leave alone are summarised in place.
                       </p>
                     </div>
                   ) : previewRows.length === 0 ? (
-                    <div className="h-full flex items-center justify-center p-8">
-                      <p className="text-xs text-gray-400">No records to preview.</p>
-                    </div>
+                    <div className="h-full flex items-center justify-center p-8"><p className="text-xs text-gray-400">No records in that selection.</p></div>
                   ) : (
                     <table className="w-full text-xs">
                       <thead className="bg-gray-50 sticky top-0">
                         <tr className="text-left text-gray-600">
-                          <th className="px-2 py-2 font-semibold w-10">#</th>
-                          <th className="px-2 py-2 font-semibold">Current {activeField.name}</th>
-                          <th className="px-2 py-2 font-semibold">Proposed {activeField.name}</th>
-                          <th className="px-2 py-2 font-semibold w-20">Status</th>
+                          <th className="px-3 py-2 font-semibold w-12">#</th>
+                          <th className="px-3 py-2 font-semibold">Current {activeField.name}</th>
+                          <th className="px-3 py-2 font-semibold">Proposed {activeField.name}</th>
+                          <th className="px-3 py-2 font-semibold w-24">Status</th>
                         </tr>
                       </thead>
                       <tbody>
                         {previewRows.map((row: any) => row.status === 'skipped' ? (
                           <tr key={row.recordId} className="border-t border-gray-100 bg-gray-50/60">
-                            <td colSpan={4} className="px-2 py-1.5 text-center text-[10px] text-gray-400 italic">
+                            <td colSpan={4} className="px-3 py-1.5 text-center text-[10px] text-gray-400 italic">
                               {row.count} record{row.count === 1 ? '' : 's'} already {row.count === 1 ? 'has' : 'have'} a {activeField.name} — left alone
                             </td>
                           </tr>
                         ) : (
                           <tr key={row.recordId} className="border-t border-gray-100">
-                            <td className="px-2 py-2 text-gray-400 font-mono">{row.position}</td>
-                            <td className="px-2 py-2 truncate max-w-[180px]" title={row.current}>{row.current || <span className="text-gray-300 italic">blank</span>}</td>
-                            <td className="px-2 py-2 truncate max-w-[180px]" title={row.error || row.proposed || ''}>
+                            <td className="px-3 py-2 text-gray-400 font-mono">{row.position}</td>
+                            <td className="px-3 py-2" title={row.current}>{row.current || <span className="text-gray-300 italic">blank</span>}</td>
+                            <td className="px-3 py-2" title={row.error || row.proposed || ''}>
                               {row.status === 'error'
                                 ? <span className="text-red-600">{row.error}</span>
                                 : row.proposed ?? <span className="text-gray-300">—</span>}
                             </td>
-                            <td className="px-2 py-2">
+                            <td className="px-3 py-2">
                               <span className={`inline-block px-1.5 py-0.5 rounded border text-[10px] font-bold uppercase tracking-wide ${badge[row.status]}`}>{row.status}</span>
                             </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
-                  )}
-                </div>
-
-                <div className="mt-4">
-                  <div className="flex items-center gap-3 mb-2">
-                    <p className="text-xs font-semibold text-gray-700">Run history</p>
-                    {fieldRuns.length > 3 && (
-                      <button
-                        onClick={() => setShowAllRuns(v => !v)}
-                        className="text-[10px] text-gray-500 hover:text-gray-700 underline"
-                      >{showAllRuns ? "show fewer" : `show all ${fieldRuns.length}`}</button>
-                    )}
-                  </div>
-                  {revertNotice && <div className="bg-blue-50 border border-blue-200 text-blue-800 text-[11px] p-2.5 rounded mb-2">{revertNotice}</div>}
-                  {fieldRuns.length === 0 ? (
-                    <p className="text-[11px] text-gray-400">No batch runs yet.</p>
-                  ) : (
-                    <div className={`${showAllRuns ? 'max-h-40' : ''} overflow-y-auto space-y-1.5`}>
-                      {(showAllRuns ? fieldRuns : fieldRuns.slice(0, 3)).map((run: any) => (
-                        <div key={run.id} className="border border-gray-200 rounded px-2.5 py-1.5">
-                          <div className="flex items-center gap-3 text-[11px]">
-                            <span className="text-gray-500 font-mono">{new Date(run.createdAt).toLocaleString()}</span>
-                            <span className="text-gray-400 uppercase tracking-wide font-bold">{run.mode}</span>
-                            <span className="text-gray-700">
-                              {run.written} written
-                              {/* The counts are the way in to the records behind them. */}
-                              {run.flagged > 0 && (
-                                <button onClick={() => loadRunResults(run.id, 'FLAGGED')} className="text-amber-700 underline hover:text-amber-900"> · {run.flagged} flagged</button>
+                  )
+                ) : (
+                  <div className="p-3">
+                    {revertNotice && <div className="bg-blue-50 border border-blue-200 text-blue-800 text-[11px] p-2.5 rounded mb-2">{revertNotice}</div>}
+                    {fieldRuns.length === 0 ? (
+                      <p className="text-[11px] text-gray-400">No batch runs yet.</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {fieldRuns.map((run: any) => (
+                          <div key={run.id} className="border border-gray-200 rounded px-2.5 py-1.5">
+                            <div className="flex items-center gap-3 text-[11px]">
+                              <span className="text-gray-500 font-mono">{new Date(run.createdAt).toLocaleString()}</span>
+                              <span className="text-gray-400 uppercase tracking-wide font-bold">{run.mode}</span>
+                              <span className="text-gray-700">
+                                {run.written} written
+                                {run.flagged > 0 && (
+                                  <button onClick={() => loadRunResults(run.id, 'FLAGGED')} className="text-amber-700 underline hover:text-amber-900"> · {run.flagged} flagged</button>
+                                )}
+                                {run.failed > 0 && (
+                                  <button onClick={() => loadRunResults(run.id, 'FAILED')} className="text-red-600 underline hover:text-red-800"> · {run.failed} failed</button>
+                                )}
+                              </span>
+                              <span className={`ml-auto uppercase tracking-wide font-bold ${run.status === 'FAILED' ? 'text-red-600' : run.status === 'REVERTED' ? 'text-gray-400' : run.status === 'RUNNING' ? 'text-blue-600' : 'text-gray-500'}`}>{run.status}</span>
+                              {run.status === 'REVERTED' && run.written > 0 && (
+                                <button onClick={() => handleRevert(run.id, 'redo')} disabled={revertBusy === run.id}
+                                  className="text-blue-600 hover:text-blue-800 font-bold disabled:opacity-50"
+                                  title="Put this run's values back. Records changed since the undo are left alone."
+                                >{revertBusy === run.id ? "Redoing…" : "Redo"}</button>
                               )}
-                              {run.failed > 0 && (
-                                <button onClick={() => loadRunResults(run.id, 'FAILED')} className="text-red-600 underline hover:text-red-800"> · {run.failed} failed</button>
-                              )}
-                            </span>
-                            <span className={`ml-auto uppercase tracking-wide font-bold ${run.status === 'FAILED' ? 'text-red-600' : run.status === 'REVERTED' ? 'text-gray-400' : run.status === 'RUNNING' ? 'text-blue-600' : 'text-gray-500'}`}>{run.status}</span>
-                            {run.status === 'REVERTED' && run.written > 0 && (
-                              <button
-                                onClick={() => handleRevert(run.id, 'redo')}
-                                disabled={revertBusy === run.id}
-                                className="text-blue-600 hover:text-blue-800 font-bold disabled:opacity-50"
-                                title="Put this run's values back. Records changed since the undo are left alone."
-                              >{revertBusy === run.id ? "Redoing…" : "Redo"}</button>
-                            )}
-                            {run.status !== 'REVERTED' && run.status !== 'RUNNING' && run.written > 0 && (
-                              <button
-                                onClick={() => handleRevert(run.id, 'undo')}
-                                disabled={revertBusy === run.id}
-                                className="text-red-500 hover:text-red-700 font-bold disabled:opacity-50"
-                                title="Restore what these records held before this run. Anything changed since — by hand or by a later run — is left alone and reported."
-                              >{revertBusy === run.id ? "Undoing…" : "Undo"}</button>
-                            )}
-                          </div>
-
-                          {failureRunId === run.id && failureRows && (
-                            <div className="mt-2 border-t border-gray-100 pt-2">
-                              {failureRows.length === 0 ? (
-                                <p className="text-[10px] text-gray-400">Loading…</p>
-                              ) : (
-                                <table className="w-full text-[10px]">
-                                  <tbody>
-                                    {failureRows.map((row: any) => (
-                                      <tr key={row.recordId} className="align-top">
-                                        <td className="py-0.5 pr-2 text-gray-400 font-mono w-8">{row.position ?? '—'}</td>
-                                        <td className="py-0.5 pr-2 truncate max-w-[120px]" title={row.label}>{row.label || '—'}</td>
-                                        <td className={`py-0.5 ${failureStatus === 'FAILED' ? 'text-red-600' : 'text-amber-700'}`}>
-                                          {failureStatus === 'FAILED' ? row.error : `answered "${row.newValue}" — not in the Terms list`}
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
+                              {run.status !== 'REVERTED' && run.status !== 'RUNNING' && run.written > 0 && (
+                                <button onClick={() => handleRevert(run.id, 'undo')} disabled={revertBusy === run.id}
+                                  className="text-red-500 hover:text-red-700 font-bold disabled:opacity-50"
+                                  title="Restore what these records held before this run. Anything changed since — by hand or by a later run — is left alone and reported."
+                                >{revertBusy === run.id ? "Undoing…" : "Undo"}</button>
                               )}
                             </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+
+                            {failureRunId === run.id && failureRows && (
+                              <div className="mt-2 border-t border-gray-100 pt-2">
+                                {failureRows.length === 0 ? (
+                                  <p className="text-[10px] text-gray-400">Loading…</p>
+                                ) : (
+                                  <table className="w-full text-[10px]">
+                                    <tbody>
+                                      {failureRows.map((r: any) => (
+                                        <tr key={r.recordId} className="align-top">
+                                          <td className="py-0.5 pr-2 text-gray-400 font-mono w-8">{r.position ?? '—'}</td>
+                                          <td className="py-0.5 pr-2 truncate max-w-[140px]" title={r.label}>{r.label || '—'}</td>
+                                          <td className={`py-0.5 ${failureStatus === 'FAILED' ? 'text-red-600' : 'text-amber-700'}`}>
+                                            {failureStatus === 'FAILED' ? r.error : `answered "${r.newValue}" — not in the Terms list`}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>

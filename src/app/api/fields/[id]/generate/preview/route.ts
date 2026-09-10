@@ -13,7 +13,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!session) return new NextResponse("Unauthorized", { status: 401 });
 
     const body = await req.json().catch(() => ({}));
-    const limit = Math.min(Math.max(Number(body.limit) || 10, 1), 25);
+    const selection = typeof body.records === 'string' && body.records.trim() !== '' ? body.records : '1-10';
     const compare = body.compare === true;
     // Preview whichever run is configured: an OVERWRITE run touches every record.
     const mode = body.mode === "OVERWRITE" ? "OVERWRITE" : "FILL";
@@ -24,7 +24,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return new NextResponse("Save a prompt and model before previewing", { status: 400 });
     }
 
-    const rows = await runPreview(ctx, limit, compare, mode);
+    const rows = await runPreview(ctx, selection, compare, mode);
     return NextResponse.json({ rows });
   } catch (error: any) {
     console.error("AI preview error:", error);

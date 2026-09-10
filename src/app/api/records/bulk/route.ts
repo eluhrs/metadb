@@ -2,34 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-
-function parseRangeString(str: string): number[] {
-  const indexes = new Set<number>();
-  const parts = str.split(',').map(s => s.trim());
-  
-  for (const part of parts) {
-    if (!part) continue;
-    
-    if (part.includes('-')) {
-      const [startStr, endStr] = part.split('-');
-      const start = parseInt(startStr, 10);
-      const end = parseInt(endStr, 10);
-      
-      if (!isNaN(start) && !isNaN(end) && start <= end) {
-        for (let i = start; i <= end; i++) {
-          if (i > 0) indexes.add(i - 1); // convert to 0-based index
-        }
-      }
-    } else {
-      const num = parseInt(part, 10);
-      if (!isNaN(num) && num > 0) {
-        indexes.add(num - 1);
-      }
-    }
-  }
-  
-  return Array.from(indexes).sort((a,b) => a - b);
-}
+import { parseRecordPositions } from "@/lib/recordRanges";
 
 export async function POST(req: Request) {
   try {
@@ -44,7 +17,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing parameters" }, { status: 400 });
     }
 
-    const targetIndexes = parseRangeString(rangeString);
+    const targetIndexes = parseRecordPositions(rangeString).map(p => p - 1);
     if (targetIndexes.length === 0) {
       return NextResponse.json({ success: true, appliedCount: 0 });
     }
