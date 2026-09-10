@@ -12,7 +12,11 @@ export function Navigation() {
 
   return (
     <nav className="bg-gray-900 text-white shadow-md relative z-50">
-      <div className="container mx-auto px-4 h-16 flex justify-between items-center">
+      {/* Same container as the pages (dashboard, field editor) so the logo lines up with
+          the page heading and sign-out with the buttons opposite it. Tailwind's `container`
+          snapped to the breakpoint below the viewport -- 1024px on a 1155px window -- which
+          left the header visibly inset from the content and jumping between breakpoints. */}
+      <div className="max-w-[1300px] w-full mx-auto px-8 lg:px-12 h-16 flex justify-between items-center">
         <Link href={session ? "/dashboard" : "/"} className="text-xl font-extrabold tracking-tight flex items-center space-x-2">
           <span className="text-white">MetaDB</span>
         </Link>
