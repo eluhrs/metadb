@@ -579,6 +579,17 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
         }
 
         setJobStates(prev => ({ ...prev, [fieldId]: { active: true, total: open.total, done: open.done, completed: false } }));
+
+        // Keep the run's own history line honest while it is still working. The counts
+        // are already in this poll, so patch the row in place rather than refetching --
+        // loadFieldRuns runs the expensive preflight checks and has no business firing
+        // every two seconds.
+        if (aiModalFieldIdRef.current === fieldId) {
+          setFieldRuns(prev => prev.map((r: any) => r.id === open.runId
+            ? { ...r, written: open.written, flagged: open.flagged, failed: open.failed, status: 'RUNNING' }
+            : r));
+        }
+
         await new Promise(r => setTimeout(r, 2000));
       }
     } catch (e: any) {
