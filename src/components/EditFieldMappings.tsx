@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -43,12 +43,76 @@ type FieldDefinition = {
   columnIndex?: number | null;
 };
 
+// The inline per-field job control: a start button that becomes a progress bar, then a
+// green completion chip. Two jobs use it and they can never collide on the same row --
+// the image pre-cache only appears on File 1 / File 2 fields, and those fields cannot
+// hold an AI prompt (the Prompt toggle is disabled for them).
+function FieldJobWidget({ kind, state, onStart }: {
+  kind: 'cache' | 'fill',
+  state?: { active: boolean, total: number, done: number, completed?: boolean, error?: string, warn?: string },
+  onStart?: () => void
+}) {
+  const verbs = kind === 'cache'
+    ? { idle: 'cache', done: 'cached', bar: 'bg-green-500', title: 'Pre-Cache Native Google Drive Blobs', doneTitle: 'Media Successfully Cached. Click to re-sync any newly added images.' }
+    : { idle: 'fill', done: 'filled', bar: 'bg-blue-500', title: 'Generate this field for every record with a blank value', doneTitle: 'Every record has a value. Click to re-check for newly added records.' };
+
+  return (
+    <div className="flex-shrink-0 flex items-center pr-1">
+      {state?.active ? (
+        <div className="w-24 lg:w-32 h-[26px] bg-slate-200 rounded overflow-hidden border border-slate-300 relative shadow-inner">
+          <div
+            className={`h-full ${verbs.bar} transition-all duration-300 ease-out`}
+            style={{ width: `${state.total ? Math.round((state.done / state.total) * 100) : 0}%` }}
+          />
+          <div className="absolute inset-0 flex items-center justify-center text-[10px] uppercase tracking-wider font-extrabold text-slate-900 drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)]">
+            {state.done} / {state.total}
+          </div>
+        </div>
+      ) : state?.error ? (
+        <div className="bg-red-50 border border-red-200 text-red-600 text-[10px] font-bold px-2 py-1 rounded w-full line-clamp-1 cursor-help" title={state.error}>
+          {state.error}
+        </div>
+      ) : state?.warn ? (
+        <div className="bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-bold px-2 py-1 rounded w-full line-clamp-1 cursor-help" title={state.warn}>
+          {state.warn}
+        </div>
+      ) : (
+        <button
+          onClick={(e) => { e.preventDefault(); onStart?.(); }}
+          className={`${state?.completed ? 'bg-green-50 text-green-700 border border-green-200 opacity-80 hover:bg-green-100 hover:text-green-800' : 'bg-gray-50 text-gray-500 border border-gray-200 hover:bg-gray-100 hover:text-gray-700 shadow-sm'} transition-colors text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1 uppercase tracking-wider`}
+          title={state?.completed ? verbs.doneTitle : verbs.title}
+        >
+          {state?.completed ? (
+            <>
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+              </svg>
+              {verbs.done}
+            </>
+          ) : (
+            <>
+              {verbs.idle}
+              {/* Coverage at a glance, so the editor doubles as a "how much of this column is done" readout. */}
+              {kind === 'fill' && state && state.total > 0 && (
+                <span className="font-mono normal-case tracking-normal text-gray-400">{state.done}/{state.total}</span>
+              )}
+            </>
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function FieldRowMarkup({
   f, updateField, deleteField, handleComplexToggle, isOverlay = false, 
-  hasFileFieldSelected = false, hasFile2Selected = false, cacheState, onPreCache,
+  hasFileFieldSelected = false, hasFile2Selected = false, jobState, onRunJob,
   attributes, listeners, setNodeRef, style, isDragging
 }: any) {
   const isAi = f.aiPrompt !== null;
+  // The toggle counts as "on" the moment it is switched, but only a field with actual
+  // prompt text has anything to run.
+  const hasPrompt = typeof f.aiPrompt === 'string' && f.aiPrompt.trim() !== '';
 
   return (
     <tr
@@ -81,44 +145,11 @@ function FieldRowMarkup({
             onChange={(e) => updateField(f.id, { name: e.target.value })}
             className="w-full border-gray-300 rounded px-2 py-1.5 focus:ring-blue-500 focus:border-blue-500 font-medium bg-transparent hover:bg-white transition-colors"
           />
-          {(f.isFile || f.isSecondaryFile) && (
-            <div className="flex-shrink-0 flex items-center pr-1">
-              {cacheState?.active ? (
-                <div className="w-24 lg:w-32 h-[26px] bg-slate-200 rounded overflow-hidden border border-slate-300 relative shadow-inner">
-                  <div
-                    className="h-full bg-green-500 transition-all duration-300 ease-out"
-                    style={{ width: `${cacheState.total ? Math.round((cacheState.cached / cacheState.total) * 100) : 0}%` }}
-                  />
-                  <div className="absolute inset-0 flex items-center justify-center text-[10px] uppercase tracking-wider font-extrabold text-slate-900 drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)]">
-                    {cacheState.cached} / {cacheState.total}
-                  </div>
-                </div>
-              ) : cacheState?.error ? (
-                <div className="bg-red-50 border border-red-200 text-red-600 text-[10px] font-bold px-2 py-1 rounded w-full line-clamp-1 cursor-help" title={cacheState.error}>
-                  {cacheState.error}
-                </div>
-              ) : (
-                <button
-                  onClick={(e) => { e.preventDefault(); onPreCache?.(); }}
-                  className={`${cacheState?.completed ? 'bg-green-50 text-green-700 border border-green-200 opacity-80 hover:bg-green-100 hover:text-green-800' : 'bg-gray-50 text-gray-500 border border-gray-200 hover:bg-gray-100 hover:text-gray-700 shadow-sm'} transition-colors text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1 uppercase tracking-wider`}
-                  title={cacheState?.completed ? "Media Successfully Cached. Click to re-sync any newly added images." : "Pre-Cache Native Google Drive Blobs"}
-                >
-                  {cacheState?.completed ? (
-                    <>
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                      </svg>
-                      cached
-                    </>
-                  ) : (
-                    <>
-                      cache
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
-          )}
+          {(f.isFile || f.isSecondaryFile) ? (
+            <FieldJobWidget kind="cache" state={jobState} onStart={onRunJob} />
+          ) : hasPrompt ? (
+            <FieldJobWidget kind="fill" state={jobState} onStart={onRunJob} />
+          ) : null}
           {(f.id.startsWith('temp-') || f.columnIndex === -1) && (
             <button
               onClick={(e) => { e.preventDefault(); deleteField(f.id); }}
@@ -293,9 +324,26 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
   const [selectedVocabTerms, setSelectedVocabTerms] = useState<string[]>([]);
   const [isConfirmingWrite, setIsConfirmingWrite] = useState(false);
 
-  const [cacheStates, setCacheStates] = useState<Record<string, { active: boolean, total: number, cached: number, completed?: boolean, error?: string }>>({});
+  // AI modal: dry-run preview and run history for the field currently open.
+  const [previewRows, setPreviewRows] = useState<any[] | null>(null);
+  const [previewLabel, setPreviewLabel] = useState("Record");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState("");
+  const [previewLimit, setPreviewLimit] = useState(10);
+  const [previewCompare, setPreviewCompare] = useState(false);
+  const [fillMode, setFillMode] = useState<'FILL' | 'OVERWRITE'>('FILL');
+  const [fieldRuns, setFieldRuns] = useState<any[]>([]);
+  const [fieldMetrics, setFieldMetrics] = useState<any>(null);
+  const [revertBusy, setRevertBusy] = useState<string | null>(null);
+  const [revertNotice, setRevertNotice] = useState("");
+
+  // One entry per field, shared by both long-running per-field jobs (image pre-cache and
+  // AI fill). While a job runs, done/total is that job's progress; at rest it is how much
+  // of the column is already populated.
+  const [jobStates, setJobStates] = useState<Record<string, { active: boolean, total: number, done: number, completed?: boolean, error?: string, warn?: string }>>({});
 
   const fieldIdsString = fields.map(f => f.id).join(',');
+  const aiFieldIdsString = fields.filter(f => typeof f.aiPrompt === 'string' && f.aiPrompt.trim() !== '').map(f => f.id).join(',');
 
   useEffect(() => {
     if (hasFileFieldSelected || hasFile2Selected) {
@@ -305,53 +353,198 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
           .then(res => res.json())
           .then(data => {
             if (data.total > 0 && data.total === data.cached) {
-              setCacheStates(prev => ({ ...prev, [f.id]: { active: false, total: data.total, cached: data.cached, completed: true } }));
+              setJobStates(prev => ({ ...prev, [f.id]: { active: false, total: data.total, done: data.cached, completed: true } }));
             }
           }).catch(console.error);
       });
     }
   }, [collection.id, hasFileFieldSelected, hasFile2Selected, fieldIdsString]);
 
-  const handlePreCache = async (fieldId: string) => {
-    // 1. Defensively save the UI React configuration to Postgres first so they don't lose it if they walk away!
+  // Coverage for every field that has a prompt, so the editor shows how much of each AI
+  // column is filled before you run anything. Skipped for a field mid-run: that row is
+  // already showing live progress and must not be overwritten by a stale count.
+  const loadFillMetrics = useCallback((fieldId: string) => {
+    return fetch(`/api/fields/${fieldId}/generate`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (!data) return null;
+        setJobStates(prev => prev[fieldId]?.active ? prev : ({
+          ...prev,
+          [fieldId]: { active: false, total: data.total, done: data.filled, completed: data.total > 0 && data.blank === 0 }
+        }));
+        return data;
+      })
+      .catch(err => { console.error(err); return null; });
+  }, []);
+
+  useEffect(() => {
+    fields.filter(f => typeof f.aiPrompt === 'string' && f.aiPrompt.trim() !== '')
+      .forEach(f => { loadFillMetrics(f.id); });
+    // Keyed on which fields have prompts, not on the prompt text, so typing in the modal
+    // does not refire a metrics sweep on every keystroke.
+  }, [collection.id, aiFieldIdsString, loadFillMetrics]);
+
+  // Drives one long job to completion by polling: each POST does a bounded slice of the
+  // work and reports progress, so nothing depends on a single request surviving an hour.
+  // Both the image pre-cache and the AI fill speak this protocol.
+  const runFieldJob = async (
+    fieldId: string,
+    kind: 'cache' | 'fill',
+    request: () => Promise<Response>,
+    adapt: (data: any) => { total: number, done: number, error?: string, complete?: boolean },
+    onComplete?: (data: any) => void
+  ) => {
+    // Defensively save the UI React configuration to Postgres first so they don't lose it
+    // if they walk away -- and, for a fill, because the server runs the *saved* prompt,
+    // not whatever is currently sitting in the textarea.
     const successfullySaved = await saveMappings(false);
     if (!successfullySaved) return;
 
-    setCacheStates(prev => ({ ...prev, [fieldId]: { active: true, total: 0, cached: 0, completed: false } }));
+    setJobStates(prev => ({ ...prev, [fieldId]: { active: true, total: 0, done: 0, completed: false } }));
     let isComplete = false;
     let currentTotal = 0;
+    let lastData: any = null;
 
     // Dependable Sequential Polling Loop
     while (!isComplete) {
       try {
-        const res = await fetch(`/api/collections/${collection.id}/cache?fieldId=${fieldId}`, { method: 'POST' });
+        const res = await request();
         if (!res.ok) {
           const errorText = await res.text().catch(() => "Unknown Server Crash");
           throw new Error(`HTTP ${res.status}: ${errorText}`);
         }
         const data = await res.json();
+        lastData = data;
+        const progress = adapt(data);
 
-        currentTotal = data.total;
+        currentTotal = progress.total;
 
-        if (data.debug) {
-          setCacheStates(prev => ({ ...prev, [fieldId]: { active: false, total: 0, cached: 0, completed: false, error: data.debug } }));
+        if (progress.error) {
+          setJobStates(prev => ({ ...prev, [fieldId]: { active: false, total: 0, done: 0, completed: false, error: progress.error } }));
           return;
         }
 
-        setCacheStates(prev => ({ ...prev, [fieldId]: { active: true, total: currentTotal, cached: data.cached, completed: false } }));
+        setJobStates(prev => ({ ...prev, [fieldId]: { active: true, total: currentTotal, done: progress.done, completed: false } }));
 
-        if (currentTotal === 0 || data.cached >= currentTotal) {
+        if (progress.complete || currentTotal === 0 || progress.done >= currentTotal) {
           isComplete = true;
         }
       } catch (e: any) {
         console.error(e);
-        setCacheStates(prev => ({ ...prev, [fieldId]: { active: false, total: 0, cached: 0, completed: false, error: e.message } }));
+        setJobStates(prev => ({ ...prev, [fieldId]: { active: false, total: 0, done: 0, completed: false, error: e.message } }));
         return; // Abort the UI loop without triggering the 1.5s 'completed' green tick!
       }
     }
+
     setTimeout(() => {
-      setCacheStates(prev => ({ ...prev, [fieldId]: { active: false, total: currentTotal, cached: currentTotal, completed: true } }));
+      if (kind === 'fill') {
+        // Swap run progress back for column coverage, which is what the row means at rest.
+        loadFillMetrics(fieldId).then(() => onComplete?.(lastData));
+        router.refresh();
+      } else {
+        setJobStates(prev => ({ ...prev, [fieldId]: { active: false, total: currentTotal, done: currentTotal, completed: true } }));
+      }
     }, 1500);
+  };
+
+  const handlePreCache = (fieldId: string) =>
+    runFieldJob(
+      fieldId,
+      'cache',
+      () => fetch(`/api/collections/${collection.id}/cache?fieldId=${fieldId}`, { method: 'POST' }),
+      (data) => ({ total: data.total, done: data.cached, error: data.debug })
+    );
+
+  // Blank-only by default: the row button never overwrites work someone already did.
+  // Overwriting everything is available from the AI modal, where it has to be chosen.
+  const handleFill = (fieldId: string, mode: 'FILL' | 'OVERWRITE' = 'FILL') =>
+    runFieldJob(
+      fieldId,
+      'fill',
+      () => fetch(`/api/fields/${fieldId}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode })
+      }),
+      (data) => ({ total: data.total, done: data.done, error: data.error, complete: data.complete }),
+      // A run that ends with nothing written must not look like a no-op. Failures are red,
+      // vocabulary flags amber; both point at the run history for the detail.
+      (data) => {
+        if (!data) return;
+        if (data.failed > 0) {
+          setJobStates(prev => ({ ...prev, [fieldId]: { active: false, total: 0, done: 0, error: `${data.failed} failed`, } }));
+        } else if (data.flagged > 0) {
+          setJobStates(prev => ({ ...prev, [fieldId]: { active: false, total: 0, done: 0, warn: `${data.flagged} flagged`, } }));
+        }
+      }
+    );
+
+  // Dry run. Saves the configuration first: the server generates from the *saved* prompt,
+  // so previewing unsaved edits would quietly test the previous version of it.
+  const handlePreview = async () => {
+    if (!activeField) return;
+    setPreviewError("");
+    setPreviewLoading(true);
+    try {
+      const saved = await saveMappings(false);
+      if (!saved) throw new Error("Could not save the prompt before previewing.");
+
+      const res = await fetch(`/api/fields/${activeField.id}/generate/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: previewLimit, compare: previewCompare })
+      });
+      if (!res.ok) throw new Error(await res.text().catch(() => "Preview failed"));
+
+      const data = await res.json();
+      setPreviewRows(data.rows);
+      setPreviewLabel(data.labelName || "Record");
+    } catch (e: any) {
+      setPreviewError(e.message);
+      setPreviewRows(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  // deep=1: the modal is the one place the expensive preflight checks are worth running.
+  const loadFieldRuns = useCallback((fieldId: string) => {
+    fetch(`/api/fields/${fieldId}/generate?deep=1`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (!data) return;
+        setFieldRuns(data.runs || []);
+        setFieldMetrics(data);
+      })
+      .catch(console.error);
+  }, []);
+
+  const handleRevert = async (runId: string) => {
+    if (!activeField) return;
+    setRevertBusy(runId);
+    setRevertNotice("");
+    try {
+      const res = await fetch(`/api/fields/${activeField.id}/generate/revert`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId })
+      });
+      if (!res.ok) throw new Error(await res.text().catch(() => "Revert failed"));
+
+      const summary = await res.json();
+      setRevertNotice(
+        summary.conflicts > 0
+          ? `Restored ${summary.reverted} values. ${summary.conflicts} were edited by hand since the run and were left alone.`
+          : `Restored ${summary.reverted} values.`
+      );
+      loadFieldRuns(activeField.id);
+      loadFillMetrics(activeField.id);
+      router.refresh();
+    } catch (e: any) {
+      setRevertNotice(e.message);
+    } finally {
+      setRevertBusy(null);
+    }
   };
 
   const handleAddField = () => {
@@ -376,6 +569,16 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
       columnIndex: -1
     }]);
   };
+
+  const aiModalFieldId = modalOpen === 'ai' ? activeField?.id : undefined;
+  useEffect(() => {
+    if (!aiModalFieldId) return;
+    setPreviewRows(null);
+    setPreviewError("");
+    setRevertNotice("");
+    setFillMode('FILL');
+    loadFieldRuns(aiModalFieldId);
+  }, [aiModalFieldId, loadFieldRuns]);
 
   const updateField = (id: string, updates: Partial<FieldDefinition>) => {
     setFields(prev => prev.map(f => f.id === id ? { ...f, ...updates } : f));
@@ -650,7 +853,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                 </thead>
                 <DroppableTableBody id="desc" items={descriptiveFields.map(f => f.id)}>
                   {descriptiveFields.map((f) => (
-                    <SortableFieldRow key={f.id} f={f} updateField={updateField} deleteField={deleteField} handleComplexToggle={handleComplexToggle} hasFileFieldSelected={hasFileFieldSelected} hasFile2Selected={hasFile2Selected} cacheState={cacheStates[f.id]} onPreCache={() => handlePreCache(f.id)} />
+                    <SortableFieldRow key={f.id} f={f} updateField={updateField} deleteField={deleteField} handleComplexToggle={handleComplexToggle} hasFileFieldSelected={hasFileFieldSelected} hasFile2Selected={hasFile2Selected} jobState={jobStates[f.id]} onRunJob={() => (f.isFile || f.isSecondaryFile) ? handlePreCache(f.id) : handleFill(f.id)} />
                   ))}
                 </DroppableTableBody>
               </table>
@@ -682,7 +885,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                 </thead>
                 <DroppableTableBody id="admin" items={administrativeFields.map(f => f.id)}>
                   {administrativeFields.map((f) => (
-                    <SortableFieldRow key={f.id} f={f} updateField={updateField} deleteField={deleteField} handleComplexToggle={handleComplexToggle} hasFileFieldSelected={hasFileFieldSelected} hasFile2Selected={hasFile2Selected} cacheState={cacheStates[f.id]} onPreCache={() => handlePreCache(f.id)} />
+                    <SortableFieldRow key={f.id} f={f} updateField={updateField} deleteField={deleteField} handleComplexToggle={handleComplexToggle} hasFileFieldSelected={hasFileFieldSelected} hasFile2Selected={hasFile2Selected} jobState={jobStates[f.id]} onRunJob={() => (f.isFile || f.isSecondaryFile) ? handlePreCache(f.id) : handleFill(f.id)} />
                   ))}
                 </DroppableTableBody>
               </table>
@@ -693,7 +896,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
             {activeDragField ? (
               <table className="w-full bg-white shadow-xl ring-2 ring-blue-500 rounded-lg overflow-hidden" style={{ borderCollapse: 'initial', borderSpacing: 0 }}>
                 <tbody>
-                  <FieldRowMarkup f={activeDragField} updateField={() => { }} deleteField={() => {}} handleComplexToggle={() => { }} isOverlay={true} cacheState={cacheStates[activeDragField.id]} onPreCache={() => { }} />
+                  <FieldRowMarkup f={activeDragField} updateField={() => { }} deleteField={() => {}} handleComplexToggle={() => { }} isOverlay={true} jobState={jobStates[activeDragField.id]} onRunJob={() => { }} />
                 </tbody>
               </table>
             ) : null}
@@ -895,55 +1098,231 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
         </div>
       )}
 
-      {modalOpen === 'ai' && activeField && (
+      {modalOpen === 'ai' && activeField && (() => {
+        const terms = activeField.isControlled && activeField.controlledVocabList
+          ? activeField.controlledVocabList.split('\n').map((t: string) => t.trim()).filter(Boolean)
+          : [];
+        const coldImages = fieldMetrics?.images && fieldMetrics.images.cached < fieldMetrics.images.needed;
+        const badge: Record<string, string> = {
+          fill: 'bg-blue-50 text-blue-700 border-blue-200',
+          kept: 'bg-gray-100 text-gray-500 border-gray-200',
+          flag: 'bg-amber-50 text-amber-700 border-amber-200',
+          error: 'bg-red-50 text-red-700 border-red-200',
+          match: 'bg-green-50 text-green-700 border-green-200',
+          differs: 'bg-amber-50 text-amber-700 border-amber-200',
+        };
+
+        return (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow border border-gray-200 p-6 max-w-md w-full">
-            <div className="flex justify-between items-center mb-4">
+          <div className="bg-white rounded-xl shadow border border-gray-200 w-full max-w-5xl max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center px-6 pt-6 pb-3">
               <h3 className="text-lg font-bold text-gray-900 border-b-2 border-blue-600 pb-1">AI Settings</h3>
               <span className="text-gray-400 font-bold cursor-pointer hover:text-gray-600" onClick={() => setModalOpen(null)}>✕</span>
             </div>
-            <p className="text-xs text-gray-500 mb-4">Configure generative behavior for <span className="font-semibold text-gray-800">{activeField?.name}</span> field.</p>
-            <div className="space-y-4 mb-4">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Prompt text</label>
-                <textarea
-                  className="w-full border border-gray-300 rounded text-sm p-3 h-40 focus:ring-blue-500 focus:outline-none"
-                  placeholder="Translate {{Title English}} to Japanese."
-                  value={activeField?.aiPrompt || ''}
-                  onChange={(e) => updateField(activeField?.id || '', { aiPrompt: e.target.value })}
-                />
-                <span className="text-[10px] text-blue-600 font-medium block">Use {'{{field_name}}'} variables within AI prompts</span>
-                <span className="text-[10px] text-gray-500 font-medium block">Images: {'{{image}}'}, {'{{image1}}'} or {'{{front}}'} for Image 1 &middot; {'{{image2}}'} or {'{{back}}'} for Image 2</span>
+            <p className="text-xs text-gray-500 px-6 pb-4">Configure generative behavior for <span className="font-semibold text-gray-800">{activeField?.name}</span> field.</p>
+
+            <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-6 px-6 pb-6">
+
+              {/* Configuration — unchanged in width, so editing a prompt feels the same as before. */}
+              <div className="w-full lg:w-[360px] flex-shrink-0 flex flex-col overflow-y-auto">
+                <div className="space-y-4 mb-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Prompt text</label>
+                    <textarea
+                      className="w-full border border-gray-300 rounded text-sm p-3 h-40 focus:ring-blue-500 focus:outline-none"
+                      placeholder="Translate {{Title English}} to Japanese."
+                      value={activeField?.aiPrompt || ''}
+                      onChange={(e) => updateField(activeField?.id || '', { aiPrompt: e.target.value })}
+                    />
+                    <span className="text-[10px] text-blue-600 font-medium block">Use {'{{field_name}}'} variables within AI prompts</span>
+                    <span className="text-[10px] text-gray-500 font-medium block">Images: {'{{image}}'}, {'{{image1}}'} or {'{{front}}'} for Image 1 &middot; {'{{image2}}'} or {'{{back}}'} for Image 2</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">AI Model Selection</label>
+                    <select
+                      className="w-full border border-gray-300 rounded text-sm p-2 focus:ring-blue-500 focus:outline-none bg-white"
+                      value={activeField?.aiModel || availableModels[0]}
+                      onChange={(e) => updateField(activeField?.id || '', { aiModel: e.target.value })}
+                    >
+                      {availableModels.map((m: string) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Terms and Prompt compose deliberately: the list is the value space, the
+                      prompt chooses from it. Spell that out rather than leaving it implied. */}
+                  {terms.length > 0 && (
+                    <div className="bg-slate-50 border border-slate-200 rounded p-3">
+                      <p className="text-[11px] font-semibold text-slate-700 mb-1">Answers are validated against this field&apos;s Terms list ({terms.length} values)</p>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">{terms.slice(0, 12).join(' · ')}{terms.length > 12 ? ' …' : ''}</p>
+                      <p className="text-[10px] text-slate-500 mt-1.5">An answer outside the list is flagged and left unwritten.</p>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Batch run scope</label>
+                    <select
+                      className="w-full border border-gray-300 rounded text-sm p-2 focus:ring-blue-500 focus:outline-none bg-white"
+                      value={fillMode}
+                      onChange={(e) => setFillMode(e.target.value as 'FILL' | 'OVERWRITE')}
+                    >
+                      <option value="FILL">Fill blanks only — preserve existing values</option>
+                      <option value="OVERWRITE">Overwrite every record</option>
+                    </select>
+                    {fieldMetrics && (
+                      <p className="text-[10px] text-gray-500 mt-1">
+                        {fieldMetrics.filled} of {fieldMetrics.total} records already have a value.
+                      </p>
+                    )}
+                  </div>
+
+                  {fieldMetrics?.reason && (
+                    <div className="bg-amber-50 border border-amber-200 text-amber-800 text-[11px] p-2.5 rounded">{fieldMetrics.reason}</div>
+                  )}
+                  {coldImages && (
+                    <div className="bg-amber-50 border border-amber-200 text-amber-800 text-[11px] p-2.5 rounded">
+                      {fieldMetrics.images.needed - fieldMetrics.images.cached} of {fieldMetrics.images.needed} images are not cached yet and will be pulled from Drive during the run. Pre-caching the image field first makes this much faster.
+                    </div>
+                  )}
+                </div>
+
+                {error && <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded mb-3">{error}</div>}
+
+                <div className="mt-auto pt-2 space-y-3">
+                  <button
+                    disabled={loading || !activeField?.aiPrompt?.trim()}
+                    onClick={async () => {
+                      const id = activeField?.id || '';
+                      setModalOpen(null); // Progress renders on the field row, so get out of its way.
+                      await handleFill(id, fillMode);
+                    }}
+                    className="w-full bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 font-bold shadow-sm disabled:opacity-50"
+                  >
+                    {fillMode === 'FILL'
+                      ? `Run on ${fieldMetrics ? fieldMetrics.blank : ''} blank record${fieldMetrics?.blank === 1 ? '' : 's'}`.replace('  ', ' ')
+                      : `Overwrite all ${fieldMetrics ? fieldMetrics.total : ''} records`.replace('  ', ' ')}
+                  </button>
+                  <div className="flex justify-between items-center">
+                    <button
+                      disabled={loading}
+                      onClick={() => saveAndClose(applyFieldUpdate(activeField?.id || '', { aiPrompt: null }))}
+                      className="text-red-500 hover:text-red-700 text-sm font-medium disabled:opacity-50"
+                    >Remove AI Prompt</button>
+                    <button
+                      disabled={loading}
+                      onClick={() => saveAndClose()}
+                      className="bg-slate-800 text-white px-6 py-2 rounded text-sm hover:bg-slate-700 font-bold shadow-sm disabled:opacity-50"
+                    >{loading ? "Saving..." : "Save Settings"}</button>
+                  </div>
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">AI Model Selection</label>
-                <select
-                  className="w-full border border-gray-300 rounded text-sm p-2 focus:ring-blue-500 focus:outline-none bg-white"
-                  value={activeField?.aiModel || availableModels[0]}
-                  onChange={(e) => updateField(activeField?.id || '', { aiModel: e.target.value })}
-                >
-                  {availableModels.map((m: string) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
+
+              {/* Dry run and history */}
+              <div className="flex-1 min-w-0 flex flex-col border-l border-gray-100 lg:pl-6 min-h-0">
+                <div className="flex items-center gap-3 flex-wrap mb-3">
+                  <span className="text-xs font-semibold text-gray-700">Dry run</span>
+                  <label className="text-[11px] text-gray-500 flex items-center gap-1.5">
+                    rows
+                    <input
+                      type="number" min={1} max={25} value={previewLimit}
+                      onChange={(e) => setPreviewLimit(Math.min(25, Math.max(1, Number(e.target.value) || 1)))}
+                      className="w-14 border border-gray-300 rounded px-1.5 py-1 text-xs"
+                    />
+                  </label>
+                  <label className="text-[11px] text-gray-600 flex items-center gap-1.5 cursor-pointer" title="Also generate for records that already have a value, and show where the model disagrees with what was catalogued by hand.">
+                    <input type="checkbox" className="w-3.5 h-3.5 rounded" checked={previewCompare} onChange={(e) => setPreviewCompare(e.target.checked)} />
+                    compare against existing values
+                  </label>
+                  <button
+                    onClick={handlePreview}
+                    disabled={previewLoading || !activeField?.aiPrompt?.trim()}
+                    className="ml-auto bg-white border border-gray-300 text-gray-700 px-4 py-1.5 rounded text-xs font-bold hover:bg-gray-50 disabled:opacity-50"
+                  >{previewLoading ? "Generating…" : "Preview"}</button>
+                </div>
+
+                {previewError && <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded mb-3">{previewError}</div>}
+
+                <div className="flex-1 min-h-0 overflow-auto border border-gray-200 rounded">
+                  {previewRows === null ? (
+                    <div className="h-full flex items-center justify-center text-center p-8">
+                      <p className="text-xs text-gray-400 max-w-xs leading-relaxed">
+                        Preview runs the prompt against the first few records and writes nothing.
+                        Rows that already have a value are shown too, so you can see what the run would leave alone.
+                      </p>
+                    </div>
+                  ) : previewRows.length === 0 ? (
+                    <div className="h-full flex items-center justify-center p-8">
+                      <p className="text-xs text-gray-400">No records to preview.</p>
+                    </div>
+                  ) : (
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50 sticky top-0">
+                        <tr className="text-left text-gray-600">
+                          <th className="px-2 py-2 font-semibold w-10">#</th>
+                          <th className="px-2 py-2 font-semibold">{previewLabel}</th>
+                          <th className="px-2 py-2 font-semibold">Current</th>
+                          <th className="px-2 py-2 font-semibold">Proposed</th>
+                          <th className="px-2 py-2 font-semibold w-20">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewRows.map((row: any) => (
+                          <tr key={row.recordId} className={`border-t border-gray-100 ${row.status === 'kept' ? 'bg-gray-50/60 text-gray-400' : ''}`}>
+                            <td className="px-2 py-2 text-gray-400 font-mono">{row.position}</td>
+                            <td className="px-2 py-2 truncate max-w-[140px]" title={row.label}>{row.label || <span className="text-gray-300">—</span>}</td>
+                            <td className="px-2 py-2 truncate max-w-[140px]" title={row.current}>{row.current || <span className="text-gray-300 italic">blank</span>}</td>
+                            <td className="px-2 py-2 truncate max-w-[180px]" title={row.error || row.proposed || ''}>
+                              {row.status === 'error'
+                                ? <span className="text-red-600">{row.error}</span>
+                                : row.proposed ?? <span className="text-gray-300">—</span>}
+                            </td>
+                            <td className="px-2 py-2">
+                              <span className={`inline-block px-1.5 py-0.5 rounded border text-[10px] font-bold uppercase tracking-wide ${badge[row.status]}`}>{row.status}</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                <div className="mt-4">
+                  <p className="text-xs font-semibold text-gray-700 mb-2">Run history</p>
+                  {revertNotice && <div className="bg-blue-50 border border-blue-200 text-blue-800 text-[11px] p-2.5 rounded mb-2">{revertNotice}</div>}
+                  {fieldRuns.length === 0 ? (
+                    <p className="text-[11px] text-gray-400">No batch runs yet.</p>
+                  ) : (
+                    <div className="max-h-32 overflow-y-auto space-y-1.5">
+                      {fieldRuns.map((run: any) => (
+                        <div key={run.id} className="flex items-center gap-3 text-[11px] border border-gray-200 rounded px-2.5 py-1.5">
+                          <span className="text-gray-500 font-mono">{new Date(run.createdAt).toLocaleString()}</span>
+                          <span className="text-gray-400 uppercase tracking-wide font-bold">{run.mode}</span>
+                          <span className="text-gray-700">
+                            {run.written} written
+                            {run.flagged > 0 && <span className="text-amber-700"> · {run.flagged} flagged</span>}
+                            {run.failed > 0 && <span className="text-red-600"> · {run.failed} failed</span>}
+                          </span>
+                          <span className={`ml-auto uppercase tracking-wide font-bold ${run.status === 'FAILED' ? 'text-red-600' : run.status === 'REVERTED' ? 'text-gray-400' : 'text-gray-500'}`}>{run.status}</span>
+                          {run.status !== 'REVERTED' && run.written > 0 && (
+                            <button
+                              onClick={() => handleRevert(run.id)}
+                              disabled={revertBusy === run.id}
+                              className="text-red-500 hover:text-red-700 font-bold disabled:opacity-50"
+                            >{revertBusy === run.id ? "Undoing…" : "Undo"}</button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-            {error && <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded mb-3">{error}</div>}
-            <div className="flex justify-between items-center mt-2">
-              <button
-                disabled={loading}
-                onClick={() => saveAndClose(applyFieldUpdate(activeField?.id || '', { aiPrompt: null }))}
-                className="text-red-500 hover:text-red-700 text-sm font-medium disabled:opacity-50"
-              >Remove AI Prompt</button>
-              <button
-                disabled={loading}
-                onClick={() => saveAndClose()}
-                className="bg-slate-800 text-white px-6 py-2 rounded text-sm hover:bg-slate-700 font-bold shadow-sm disabled:opacity-50"
-              >{loading ? "Saving..." : "Save Settings"}</button>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

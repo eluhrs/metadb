@@ -113,6 +113,7 @@ model FieldDefinition {
   uiOrder            Int        @default(0) // Visual ordering tracking drag-n-drop state
 
   values             Value[]
+  generationRuns     GenerationRun[]
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
 }
@@ -123,6 +124,7 @@ model Record {
   collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
   values       Value[]
   image        Image?
+  generationResults GenerationResult[]
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 }
@@ -147,4 +149,55 @@ model Image {
   localPath    String?  // Can be null if using URI
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// One batch AI fill of one field. Progress lives here rather than in memory so a run
+// survives a container restart mid-way, and so the field editor can show coverage
+// without re-querying every record.
+model GenerationRun {
+  id             String          @id @default(uuid())
+  fieldId        String
+  field          FieldDefinition @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  collectionId   String
+
+  // FILL writes only blank values; OVERWRITE replaces everything. Dry runs are not
+  // recorded here -- they write nothing, so they are not something you can revert.
+  mode           String          @default("FILL")
+  status         String          @default("RUNNING") // RUNNING | COMPLETE | FAILED | REVERTED
+
+  // The prompt and model as they were when the run started. Editing the prompt afterwards
+  // must not rewrite the history of what actually produced these values.
+  promptSnapshot String          @db.Text
+  model          String
+
+  total          Int             @default(0)
+  written        Int             @default(0)
+  flagged        Int             @default(0)
+  failed         Int             @default(0)
+  error          String?         @db.Text
+
+  results        GenerationResult[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([fieldId, status])
+}
+
+// What the run did to one record. previousValue is what makes an undo exact: null means
+// no Value row existed at all, so reverting deletes the row rather than blanking it.
+model GenerationResult {
+  id            String        @id @default(uuid())
+  runId         String
+  run           GenerationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  recordId      String
+  record        Record        @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  status        String        // WRITTEN | FLAGGED | FAILED
+  previousValue String?       @db.Text
+  newValue      String?       @db.Text
+  error         String?       @db.Text
+  createdAt     DateTime      @default(now())
+
+  @@unique([runId, recordId])
+  @@index([runId])
 }
