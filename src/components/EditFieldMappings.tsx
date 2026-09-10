@@ -1214,7 +1214,6 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
         const coldImages = fieldMetrics?.images && fieldMetrics.images.cached < fieldMetrics.images.needed;
         const badge: Record<string, string> = {
           fill: 'bg-blue-50 text-blue-700 border-blue-200',
-          kept: 'bg-gray-100 text-gray-500 border-gray-200',
           flag: 'bg-amber-50 text-amber-700 border-amber-200',
           error: 'bg-red-50 text-red-700 border-red-200',
           match: 'bg-green-50 text-green-700 border-green-200',
@@ -1383,15 +1382,23 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                       <thead className="bg-gray-50 sticky top-0">
                         <tr className="text-left text-gray-600">
                           <th className="px-2 py-2 font-semibold w-10">#</th>
-                          <th className="px-2 py-2 font-semibold">{previewLabel}</th>
-                          <th className="px-2 py-2 font-semibold">Current</th>
-                          <th className="px-2 py-2 font-semibold">Proposed</th>
+                          {/* A name tag for the card, not a value under review -- so it is
+                              headed "Record" rather than after whichever column it borrows. */}
+                          <th className="px-2 py-2 font-semibold" title={`Identifies the record, using the ${previewLabel} column`}>Record</th>
+                          <th className="px-2 py-2 font-semibold">Current {activeField.name}</th>
+                          <th className="px-2 py-2 font-semibold">Proposed {activeField.name}</th>
                           <th className="px-2 py-2 font-semibold w-20">Status</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {previewRows.map((row: any) => (
-                          <tr key={row.recordId} className={`border-t border-gray-100 ${row.status === 'kept' ? 'bg-gray-50/60 text-gray-400' : ''}`}>
+                        {previewRows.map((row: any) => row.status === 'skipped' ? (
+                          <tr key={row.recordId} className="border-t border-gray-100 bg-gray-50/60">
+                            <td colSpan={5} className="px-2 py-1.5 text-center text-[10px] text-gray-400 italic">
+                              {row.count} record{row.count === 1 ? '' : 's'} already {row.count === 1 ? 'has' : 'have'} a {activeField.name} — left alone
+                            </td>
+                          </tr>
+                        ) : (
+                          <tr key={row.recordId} className="border-t border-gray-100">
                             <td className="px-2 py-2 text-gray-400 font-mono">{row.position}</td>
                             <td className="px-2 py-2 truncate max-w-[140px]" title={row.label}>{row.label || <span className="text-gray-300">—</span>}</td>
                             <td className="px-2 py-2 truncate max-w-[140px]" title={row.current}>{row.current || <span className="text-gray-300 italic">blank</span>}</td>

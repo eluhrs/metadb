@@ -45,13 +45,17 @@ export async function loadFieldContext(fieldId: string): Promise<FieldContext | 
   return { field, fieldDefs, collectionId: field.collectionId };
 }
 
-// The column shown beside each row in the dry-run preview so you can tell which card you
-// are looking at. There is no title-field concept in the schema, so take the first
-// ordinary descriptive column that is not the field being generated.
+// Identifies which record a preview row is, so a bad answer can be traced back to a card.
+// This is never the field being generated -- it is a name tag, not a value under review.
+// There is no title-field concept in the schema, so prefer a column that looks like an
+// identifier and fall back to the first ordinary descriptive one.
+const IDENTIFIER_NAME = /(^|[_\s-])(id|ids|no|num|number|accession|call|ref|identifier|shelfmark|catalog(ue)?)([_\s-]|$)/i;
+
 export function labelFieldFor(fieldDefs: any[], targetFieldId: string): any | null {
-  return fieldDefs.find((f: any) =>
+  const usable = fieldDefs.filter((f: any) =>
     f.id !== targetFieldId && !f.isAdministrative && !f.isFile && !f.isSecondaryFile && !f.isLong
-  ) ?? null;
+  );
+  return usable.find((f: any) => IDENTIFIER_NAME.test(f.name)) ?? usable[0] ?? null;
 }
 
 // Records in the collection's canonical order -- the same createdAt ordering the bulk
@@ -421,19 +425,23 @@ export async function cancelRun(fieldId: string): Promise<boolean> {
 
 
 export type PreviewRow = {
-  position: number;
+  position: number | null;
   recordId: string;
   label: string;
   current: string;
   proposed: string | null;
-  status: "fill" | "kept" | "flag" | "error" | "match" | "differs";
+  // "skipped" is a summary line standing in for a stretch of records the run would leave
+  // alone, with `count` of them. Emitting one row per skipped record meant that a column
+  // which was already full rendered the entire collection.
+  status: "fill" | "flag" | "error" | "match" | "differs" | "skipped";
   error?: string;
+  count?: number;
 };
 
-// Dry run. Walks records in order and shows every row it passes, so the rows it would
-// leave alone are visible in place rather than silently omitted. Stops once `limit`
-// generations have been produced -- skipped rows cost no API call, so they are free to
-// include. Writes nothing and records no run.
+// Dry run. Walks records in order, generating for the first `limit` records that qualify
+// and collapsing the stretches it would skip into a single summary line, so the table
+// stays the size of the work rather than the size of the collection. Writes nothing and
+// records no run.
 export async function runPreview(
   ctx: FieldContext,
   limit: number,
@@ -445,37 +453,51 @@ export async function runPreview(
 
   const records = await orderedRecords(collectionId, selectIds);
 
-  type Slot = { position: number; recordId: string; label: string; current: string; generate: boolean };
+  type Slot = { position: number; recordId: string; label: string; current: string };
   const slots: Slot[] = [];
-  let queued = 0;
+  const rows: PreviewRow[] = [];
+  let skipped = 0;
+
+  const flushSkipped = () => {
+    if (skipped === 0) return;
+    rows.push({
+      position: null, recordId: `skipped-${rows.length}`, label: "",
+      current: "", proposed: null, status: "skipped", count: skipped,
+    });
+    skipped = 0;
+  };
 
   for (let i = 0; i < records.length; i++) {
     const current = readValue(records[i], field.id);
-    // Compare mode deliberately re-generates rows that already have a human value, so a
-    // prompt can be checked against cards that were catalogued by hand.
+    // Compare mode deliberately re-generates rows that already have a value, so a prompt
+    // can be checked against cards that were catalogued by hand.
     const wouldGenerate = compare ? true : isBlank(current);
 
-    if (wouldGenerate && queued >= limit) break;
+    if (!wouldGenerate) { skipped++; continue; }
+    if (slots.length >= limit) break;
 
-    slots.push({
+    flushSkipped();
+
+    const slot = {
       position: i + 1,
       recordId: records[i].id,
       label: labelField ? readValue(records[i], labelField.id) : "",
       current,
-      generate: wouldGenerate,
-    });
-
-    if (wouldGenerate) queued++;
+    };
+    slots.push(slot);
+    rows.push({ ...slot, proposed: null, status: "fill" });
   }
 
-  const toGenerate = slots.filter(s => s.generate);
+  // Nothing qualified: say so once rather than listing the whole collection.
+  flushSkipped();
+
   const loaded = await prisma.record.findMany({
-    where: { id: { in: toGenerate.map(s => s.recordId) } },
+    where: { id: { in: slots.map(s => s.recordId) } },
     include: AI_RECORD_INCLUDE,
   });
   const byId = new Map(loaded.map(r => [r.id, r]));
 
-  const generated = await mapWithConcurrency(toGenerate, CONCURRENCY, async (slot) => {
+  const generated = await mapWithConcurrency(slots, CONCURRENCY, async (slot) => {
     const record = byId.get(slot.recordId);
     if (!record) return { slot, outcome: { ok: false as const, error: "Record vanished", retryable: false, attempts: 0 } };
     return { slot, outcome: await generateForRecord(record, field) };
@@ -483,45 +505,27 @@ export async function runPreview(
 
   const outcomeById = new Map(generated.map(g => [g.slot.recordId, g.outcome]));
 
-  return slots.map(slot => {
-    if (!slot.generate) {
-      return {
-        position: slot.position, recordId: slot.recordId, label: slot.label,
-        current: slot.current, proposed: null, status: "kept" as const,
-      };
-    }
+  return rows.map(row => {
+    if (row.status === "skipped") return row;
 
-    const outcome = outcomeById.get(slot.recordId);
+    const outcome = outcomeById.get(row.recordId);
     if (!outcome || !outcome.ok) {
-      return {
-        position: slot.position, recordId: slot.recordId, label: slot.label,
-        current: slot.current, proposed: null, status: "error" as const,
-        error: outcome && !outcome.ok ? outcome.error : "No result",
-      };
+      return { ...row, status: "error" as const, error: outcome && !outcome.ok ? outcome.error : "No result" };
     }
 
     const vocab = checkVocab(field, outcome.text);
     if (vocab.constrained && !vocab.matched) {
-      return {
-        position: slot.position, recordId: slot.recordId, label: slot.label,
-        current: slot.current, proposed: outcome.text, status: "flag" as const,
-      };
+      return { ...row, proposed: outcome.text, status: "flag" as const };
     }
 
     const proposed = vocab.matched ?? outcome.text;
 
-    if (compare && !isBlank(slot.current)) {
-      const agrees = slot.current.trim().toLowerCase() === proposed.trim().toLowerCase();
-      return {
-        position: slot.position, recordId: slot.recordId, label: slot.label,
-        current: slot.current, proposed, status: agrees ? "match" as const : "differs" as const,
-      };
+    if (compare && !isBlank(row.current)) {
+      const agrees = row.current.trim().toLowerCase() === proposed.trim().toLowerCase();
+      return { ...row, proposed, status: agrees ? "match" as const : "differs" as const };
     }
 
-    return {
-      position: slot.position, recordId: slot.recordId, label: slot.label,
-      current: slot.current, proposed, status: "fill" as const,
-    };
+    return { ...row, proposed, status: "fill" as const };
   });
 }
 
