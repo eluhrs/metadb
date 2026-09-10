@@ -1237,17 +1237,17 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
 
         return (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow border border-gray-200 w-full max-w-6xl h-[92vh] flex flex-col">
+          <div className="bg-white rounded-xl shadow border border-gray-200 w-full max-w-6xl max-h-[92vh] flex flex-col">
 
             <div className="flex justify-between items-center px-6 pt-5 pb-4">
               <h3 className="text-lg font-bold text-gray-900">
-                <span className="font-mono text-blue-700">{activeField.name}</span> Prompt Settings
+                <span className="font-mono text-blue-700">{'{{'}{activeField.name}{'}}'}</span> Prompt Settings
               </h3>
               <span className="text-gray-400 font-bold cursor-pointer hover:text-gray-600" onClick={() => setModalOpen(null)}>✕</span>
             </div>
 
             {/* Configuration: the prompt gets the room, since these run to thousands of characters. */}
-            <div className="flex gap-6 px-6 flex-shrink-0 h-[370px]">
+            <div className="flex gap-6 px-6 flex-shrink-0 h-[300px]">
               <div className="flex-1 min-w-0 flex flex-col">
                 <label className="block text-xs font-semibold text-gray-700 mb-1">Prompt text</label>
                 <textarea
@@ -1262,8 +1262,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
 
               {/* Everything in this rail is saved onto the field. Transient dry-run options
                   deliberately live down on the tab bar instead, beside their output. */}
-              <div className="w-[300px] flex-shrink-0 flex flex-col">
-                <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-3">
+              <div className="w-[300px] flex-shrink-0 flex flex-col gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1">AI model</label>
                   <select
@@ -1290,26 +1289,10 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                   )}
                 </div>
 
-                {terms.length > 0 && (
-                  <div className="bg-slate-50 border border-slate-200 rounded p-2.5">
-                    <p className="text-[11px] font-semibold text-slate-700 mb-1">Validated against this field&apos;s Terms list ({terms.length})</p>
-                    <p className="text-[10px] text-slate-500 leading-relaxed">{terms.slice(0, 8).join(' · ')}{terms.length > 8 ? ' …' : ''}</p>
-                    <p className="text-[10px] text-slate-500 mt-1">An answer outside the list is flagged and left unwritten.</p>
-                  </div>
-                )}
-                {fieldMetrics?.reason && (
-                  <div className="bg-amber-50 border border-amber-200 text-amber-800 text-[11px] p-2.5 rounded">{fieldMetrics.reason}</div>
-                )}
-                {coldImages && (
-                  <div className="bg-amber-50 border border-amber-200 text-amber-800 text-[11px] p-2.5 rounded">
-                    {fieldMetrics.images.needed - fieldMetrics.images.cached} of {fieldMetrics.images.needed} images are not cached and will be pulled from Drive during the run.
-                  </div>
-                )}
                 {error && <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-2.5 rounded">{error}</div>}
-                </div>
 
                 {/* Submit is the only control here that spends money; it carries the weight. */}
-                <div className="flex-shrink-0 space-y-2 pt-3">
+                <div className="space-y-2">
                   {running ? (
                     <button
                       onClick={() => handleCancel(activeField.id)}
@@ -1342,15 +1325,34 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                   <button
                     disabled={loading}
                     onClick={handleClearAiSettings}
-                    className="w-full text-red-500 hover:text-red-700 text-xs font-medium disabled:opacity-50 py-1"
+                    className="w-full border border-red-200 text-red-500 hover:text-red-700 hover:bg-red-50 text-xs font-bold rounded disabled:opacity-50 py-1.5"
                     title="Removes the prompt and model from this field entirely, switching AI off for it."
                   >Clear settings</button>
                 </div>
               </div>
             </div>
 
+            {(terms.length > 0 || fieldMetrics?.reason || coldImages) && (
+              <div className="px-6 pt-3 flex flex-col gap-1.5 flex-shrink-0">
+                {terms.length > 0 && (
+                  <div className="bg-slate-50 border border-slate-200 rounded px-3 py-1.5 text-[11px] text-slate-600">
+                    <span className="font-semibold text-slate-700">Validated against this field&apos;s Terms list ({terms.length}):</span>{' '}
+                    {terms.slice(0, 8).join(' · ')}{terms.length > 8 ? ' …' : ''} — an answer outside the list is flagged and left unwritten.
+                  </div>
+                )}
+                {fieldMetrics?.reason && (
+                  <div className="bg-amber-50 border border-amber-200 text-amber-800 text-[11px] px-3 py-1.5 rounded">{fieldMetrics.reason}</div>
+                )}
+                {coldImages && (
+                  <div className="bg-amber-50 border border-amber-200 text-amber-800 text-[11px] px-3 py-1.5 rounded">
+                    {fieldMetrics.images.needed - fieldMetrics.images.cached} of {fieldMetrics.images.needed} images are not cached and will be pulled from Drive during the run.
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Output */}
-            <div className="flex-1 min-h-0 flex flex-col px-6 pb-6 pt-4">
+            <div className="flex-shrink-0 flex flex-col px-6 pb-6 pt-4">
               <div className="flex items-end gap-1 border-b border-gray-200">
                 {([['dry', 'Dry run output'], ['log', 'Change log']] as const).map(([key, label]) => (
                   <button
@@ -1399,7 +1401,8 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                 )}
               </div>
 
-              <div className="flex-1 min-h-0 overflow-auto border border-gray-200 rounded-b rounded-tr">
+              {/* Five rows before it scrolls, so the modal stays inside a 14" laptop screen. */}
+              <div className="h-[212px] overflow-auto border border-gray-200 rounded-b rounded-tr">
                 {aiTab === 'dry' ? (
                   previewError ? (
                     <div className="p-3"><div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded">{previewError}</div></div>
