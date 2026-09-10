@@ -445,15 +445,14 @@ export type PreviewRow = {
 export async function runPreview(
   ctx: FieldContext,
   limit: number,
-  compare: boolean
+  compare: boolean,
+  mode: string
 ): Promise<PreviewRow[]> {
-  const { field, fieldDefs, collectionId } = ctx;
-  const labelField = labelFieldFor(fieldDefs, field.id);
-  const selectIds = labelField ? [field.id, labelField.id] : [field.id];
+  const { field, collectionId } = ctx;
 
-  const records = await orderedRecords(collectionId, selectIds);
+  const records = await orderedRecords(collectionId, [field.id]);
 
-  type Slot = { position: number; recordId: string; label: string; current: string };
+  type Slot = { position: number; recordId: string; current: string };
   const slots: Slot[] = [];
   const rows: PreviewRow[] = [];
   let skipped = 0;
@@ -469,23 +468,20 @@ export async function runPreview(
 
   for (let i = 0; i < records.length; i++) {
     const current = readValue(records[i], field.id);
-    // Compare mode deliberately re-generates rows that already have a value, so a prompt
-    // can be checked against cards that were catalogued by hand.
-    const wouldGenerate = compare ? true : isBlank(current);
+    // The dry run has to preview the run that is actually configured. An OVERWRITE run
+    // touches every record, so previewing it must too -- otherwise selecting "overwrite
+    // every record" produced a preview of nothing. Compare adds the same behaviour to a
+    // fill-blanks run, for checking a prompt against cards catalogued by hand.
+    const wouldGenerate = mode === "OVERWRITE" || compare ? true : isBlank(current);
 
     if (!wouldGenerate) { skipped++; continue; }
     if (slots.length >= limit) break;
 
     flushSkipped();
 
-    const slot = {
-      position: i + 1,
-      recordId: records[i].id,
-      label: labelField ? readValue(records[i], labelField.id) : "",
-      current,
-    };
+    const slot = { position: i + 1, recordId: records[i].id, current };
     slots.push(slot);
-    rows.push({ ...slot, proposed: null, status: "fill" });
+    rows.push({ ...slot, label: "", proposed: null, status: "fill" });
   }
 
   // Nothing qualified: say so once rather than listing the whole collection.
@@ -520,7 +516,9 @@ export async function runPreview(
 
     const proposed = vocab.matched ?? outcome.text;
 
-    if (compare && !isBlank(row.current)) {
+    // Whether the answer agrees is worth showing any time there is something to compare
+    // against, whichever route brought this record into the preview.
+    if (!isBlank(row.current)) {
       const agrees = row.current.trim().toLowerCase() === proposed.trim().toLowerCase();
       return { ...row, proposed, status: agrees ? "match" as const : "differs" as const };
     }

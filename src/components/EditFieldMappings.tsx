@@ -467,7 +467,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
       const res = await fetch(`/api/fields/${activeField.id}/generate/preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ limit: previewLimit, compare: previewCompare })
+        body: JSON.stringify({ limit: previewLimit, compare: previewCompare, mode: fillMode })
       });
       if (!res.ok) throw new Error(await res.text().catch(() => "Preview failed"));
 
@@ -1352,8 +1352,19 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                       className="w-14 border border-gray-300 rounded px-1.5 py-1 text-xs"
                     />
                   </label>
-                  <label className="text-[11px] text-gray-600 flex items-center gap-1.5 cursor-pointer" title="Also generate for records that already have a value, and show where the model disagrees with what was catalogued by hand.">
-                    <input type="checkbox" className="w-3.5 h-3.5 rounded" checked={previewCompare} onChange={(e) => setPreviewCompare(e.target.checked)} />
+                  <label
+                    className={`text-[11px] flex items-center gap-1.5 ${fillMode === 'OVERWRITE' ? 'text-gray-400 cursor-not-allowed' : 'text-gray-600 cursor-pointer'}`}
+                    title={fillMode === 'OVERWRITE'
+                      ? "An overwrite run regenerates every record, so the dry run already includes the ones that have values."
+                      : "Also generate for records that already have a value, and show where the model disagrees with what was catalogued by hand."}
+                  >
+                    <input
+                      type="checkbox"
+                      className="w-3.5 h-3.5 rounded"
+                      checked={fillMode === 'OVERWRITE' || previewCompare}
+                      disabled={fillMode === 'OVERWRITE'}
+                      onChange={(e) => setPreviewCompare(e.target.checked)}
+                    />
                     compare against existing values
                   </label>
                   <button
@@ -1382,9 +1393,6 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                       <thead className="bg-gray-50 sticky top-0">
                         <tr className="text-left text-gray-600">
                           <th className="px-2 py-2 font-semibold w-10">#</th>
-                          {/* A name tag for the card, not a value under review -- so it is
-                              headed "Record" rather than after whichever column it borrows. */}
-                          <th className="px-2 py-2 font-semibold" title={`Identifies the record, using the ${previewLabel} column`}>Record</th>
                           <th className="px-2 py-2 font-semibold">Current {activeField.name}</th>
                           <th className="px-2 py-2 font-semibold">Proposed {activeField.name}</th>
                           <th className="px-2 py-2 font-semibold w-20">Status</th>
@@ -1393,15 +1401,14 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
                       <tbody>
                         {previewRows.map((row: any) => row.status === 'skipped' ? (
                           <tr key={row.recordId} className="border-t border-gray-100 bg-gray-50/60">
-                            <td colSpan={5} className="px-2 py-1.5 text-center text-[10px] text-gray-400 italic">
+                            <td colSpan={4} className="px-2 py-1.5 text-center text-[10px] text-gray-400 italic">
                               {row.count} record{row.count === 1 ? '' : 's'} already {row.count === 1 ? 'has' : 'have'} a {activeField.name} — left alone
                             </td>
                           </tr>
                         ) : (
                           <tr key={row.recordId} className="border-t border-gray-100">
                             <td className="px-2 py-2 text-gray-400 font-mono">{row.position}</td>
-                            <td className="px-2 py-2 truncate max-w-[140px]" title={row.label}>{row.label || <span className="text-gray-300">—</span>}</td>
-                            <td className="px-2 py-2 truncate max-w-[140px]" title={row.current}>{row.current || <span className="text-gray-300 italic">blank</span>}</td>
+                            <td className="px-2 py-2 truncate max-w-[180px]" title={row.current}>{row.current || <span className="text-gray-300 italic">blank</span>}</td>
                             <td className="px-2 py-2 truncate max-w-[180px]" title={row.error || row.proposed || ''}>
                               {row.status === 'error'
                                 ? <span className="text-red-600">{row.error}</span>
