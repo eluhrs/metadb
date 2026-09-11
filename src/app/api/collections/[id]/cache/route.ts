@@ -165,9 +165,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         console.error(`Failed to ingest and tile ${fileId}:`, err);
         // Keep the reason. Swallowing it left the UI showing 0/747 forever with no hint
         // that every fetch was being refused.
+        // With a status, report only that -- the upstream body can be verbose and has
+        // nothing a cataloguer needs. The fallback covers network and config errors, and
+        // is capped so an unexpectedly chatty one cannot fill the row.
         const reason = err?.response?.status
           ? `HTTP ${err.response.status}`
-          : (err?.message || "unknown error");
+          : String(err?.message || "unknown error").slice(0, 120);
         errors.push(`${fileId}: ${reason}`);
       }
     }));
