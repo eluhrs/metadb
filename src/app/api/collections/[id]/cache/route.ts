@@ -137,6 +137,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const sharp = (await import('sharp')).default;
 
     let newlyCached = 0;
+    const errors: string[] = [];
 
     await Promise.allSettled(processingBatch.map(async (fileId: string) => {
       try {
@@ -160,15 +161,27 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         }
 
         newlyCached++;
-      } catch (err) {
+      } catch (err: any) {
         console.error(`Failed to ingest and tile ${fileId}:`, err);
+        // Keep the reason. Swallowing it left the UI showing 0/747 forever with no hint
+        // that every fetch was being refused.
+        const reason = err?.response?.status
+          ? `HTTP ${err.response.status}`
+          : (err?.message || "unknown error");
+        errors.push(`${fileId}: ${reason}`);
       }
     }));
 
-    // Return the correctly incremented sync response to signal the frontend's batch state!
-    return NextResponse.json({ 
-       total: totalFiles, 
-       cached: currentlyCached + newlyCached
+    // A batch where nothing succeeded will keep retrying the same files, because the route
+    // always takes the first ones still missing. Say so rather than looping in silence.
+    const stalled = newlyCached === 0 && errors.length > 0;
+
+    return NextResponse.json({
+       total: totalFiles,
+       cached: currentlyCached + newlyCached,
+       error: stalled
+         ? `Could not read ${errors.length} file${errors.length === 1 ? '' : 's'} from Google Drive — ${errors[0]}. Check the files are shared with the service account.`
+         : undefined,
     });
 
   } catch (error: any) {

@@ -93,8 +93,9 @@ function FieldJobWidget({ kind, state, onStart }: {
           ) : (
             <>
               {verbs.idle}
-              {/* Coverage at a glance, so the editor doubles as a "how much of this column is done" readout. */}
-              {kind === 'fill' && state && state.total > 0 && (
+              {/* Coverage at a glance, so the editor doubles as a "how much of this is done"
+                  readout -- and a part-finished cache no longer looks like an untouched one. */}
+              {state && state.total > 0 && (
                 <span className="font-mono normal-case tracking-normal text-gray-400">{state.done}/{state.total}</span>
               )}
             </>
@@ -364,9 +365,11 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
         fetch(`/api/collections/${collection.id}/cache?fieldId=${f.id}`)
           .then(res => res.json())
           .then(data => {
-            if (data.total > 0 && data.total === data.cached) {
-              setJobStates(prev => ({ ...prev, [f.id]: { active: false, total: data.total, done: data.cached, completed: true } }));
-            }
+            if (!(data.total > 0)) return;
+            setJobStates(prev => prev[f.id]?.active ? prev : ({
+              ...prev,
+              [f.id]: { active: false, total: data.total, done: data.cached, completed: data.total === data.cached }
+            }));
           }).catch(console.error);
       });
     }
@@ -413,6 +416,10 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
     setJobStates(prev => ({ ...prev, [fieldId]: { active: true, total: 0, done: 0, completed: false } }));
     let isComplete = false;
     let currentTotal = 0;
+    // Each POST works on the first items still outstanding, so a batch that achieves
+    // nothing will be handed the same ones again. Give up rather than loop forever.
+    let lastDone = -1;
+    let stalls = 0;
 
     while (!isComplete) {
       try {
@@ -433,9 +440,20 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
 
         setJobStates(prev => ({ ...prev, [fieldId]: { active: true, total: currentTotal, done: progress.done, completed: false } }));
 
+        if (progress.done === lastDone) {
+          if (++stalls >= 3) {
+            setJobStates(prev => ({ ...prev, [fieldId]: { active: false, total: currentTotal, done: progress.done, error: `Stopped at ${progress.done} of ${currentTotal} — no progress` } }));
+            return;
+          }
+        } else {
+          stalls = 0;
+          lastDone = progress.done;
+        }
+
         if (progress.complete || currentTotal === 0 || progress.done >= currentTotal) {
           isComplete = true;
         }
+        if (!isComplete) await new Promise(r => setTimeout(r, 300));
       } catch (e: any) {
         console.error(e);
         setJobStates(prev => ({ ...prev, [fieldId]: { active: false, total: 0, done: 0, completed: false, error: e.message } }));
@@ -452,7 +470,7 @@ export function EditFieldMappings({ collection, availableModels = [] }: { collec
     runFieldJob(
       fieldId,
       () => fetch(`/api/collections/${collection.id}/cache?fieldId=${fieldId}`, { method: 'POST' }),
-      (data) => ({ total: data.total, done: data.cached, error: data.debug })
+      (data) => ({ total: data.total, done: data.cached, error: data.debug || data.error })
     );
 
   // Dry run. Saves the configuration first: the server generates from the *saved* prompt,
